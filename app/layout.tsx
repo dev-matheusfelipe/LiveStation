@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { ReactNode } from "react";
-import Script from "next/script";
 import { getSiteUrl, toAbsoluteUrl } from "@/lib/site";
 import "./globals.css";
 
@@ -52,7 +51,6 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  const adClient = process.env.NEXT_PUBLIC_ADSENSE_CLIENT?.trim();
   const websiteSchema = {
     "@context": "https://schema.org",
     "@type": "WebApplication",
@@ -66,15 +64,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR">
       <body>
-        {adClient ? (
-          <Script
-            id="adsense-script"
-            async
-            strategy="afterInteractive"
-            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adClient}`}
-            crossOrigin="anonymous"
-          />
-        ) : null}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
