@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 
 const scrypt = promisify(scryptCallback);
@@ -20,11 +20,34 @@ function base64UrlDecode(value: string): string {
 }
 
 function getSessionSecret(): string {
-  const secret = process.env.AUTH_SECRET ?? "change-this-secret-in-production";
-  if (process.env.NODE_ENV === "production" && secret === "change-this-secret-in-production") {
-    throw new Error("AUTH_SECRET must be set in production.");
+  const explicitSecret = process.env.AUTH_SECRET?.trim();
+  if (explicitSecret) {
+    return explicitSecret;
   }
-  return secret;
+
+  if (process.env.NODE_ENV !== "production") {
+    return "change-this-secret-in-production";
+  }
+
+  // Vercel fallback to avoid hard failure when AUTH_SECRET was not configured.
+  // It is deterministic for the deployment and should be replaced by AUTH_SECRET.
+  const vercelEntropy = [
+    process.env.VERCEL_DEPLOYMENT_ID,
+    process.env.VERCEL_GIT_COMMIT_SHA,
+    process.env.VERCEL_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_PROJECT_ID,
+    process.env.VERCEL_ORG_ID
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join("|");
+
+  if (vercelEntropy) {
+    console.warn("[auth] AUTH_SECRET is missing in production. Using derived Vercel fallback secret.");
+    return createHash("sha256").update(`livestation:${vercelEntropy}`).digest("hex");
+  }
+
+  throw new Error("AUTH_SECRET must be set in production.");
 }
 
 function sign(input: string): string {
