@@ -1,4 +1,4 @@
-# LiveStation MultiView
+# Rizzer LiveStation 
 
 Aplicacao web para assistir varios videos/canais do YouTube ao mesmo tempo, com login por e-mail e senha.
 
