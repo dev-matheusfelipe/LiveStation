@@ -2,12 +2,14 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { AdSenseUnit } from "@/components/adsense-unit";
 
 type Mode = "login" | "register";
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "reserved";
 
 export function AuthForm() {
   const searchParams = useSearchParams();
+  const loginAdSlot = process.env.NEXT_PUBLIC_ADSENSE_SLOT_LOGIN?.trim();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
@@ -219,6 +221,7 @@ export function AuthForm() {
 
         {error ? <p className="statusError">{error}</p> : null}
         {message ? <p className="statusOk">{message}</p> : null}
+        <AdSenseUnit slot={loginAdSlot} className="adsPanel" />
       </div>
     </main>
   );
