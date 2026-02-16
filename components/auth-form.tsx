@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Mode = "login" | "register";
-type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "reserved";
 
 export function AuthForm() {
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
@@ -14,6 +16,34 @@ export function AuthForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const verify = searchParams.get("verify");
+    if (!verify) {
+      return;
+    }
+
+    setMode("login");
+    if (verify === "success") {
+      setError(null);
+      setMessage("E-mail confirmado com sucesso. Agora faca login.");
+      return;
+    }
+    if (verify === "already") {
+      setError(null);
+      setMessage("Sua conta ja estava verificada. Pode fazer login.");
+      return;
+    }
+    if (verify === "invalid") {
+      setMessage(null);
+      setError("Link de verificacao invalido ou expirado.");
+      return;
+    }
+    if (verify === "error") {
+      setMessage(null);
+      setError("Falha ao confirmar e-mail. Tente novamente.");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (mode !== "register") {
@@ -41,7 +71,15 @@ export function AuthForm() {
           return;
         }
         const data = (await response.json()) as { available: boolean; reason: string };
-        setUsernameStatus(data.available ? "available" : data.reason === "TAKEN" ? "taken" : "invalid");
+        if (data.available) {
+          setUsernameStatus("available");
+        } else if (data.reason === "TAKEN") {
+          setUsernameStatus("taken");
+        } else if (data.reason === "RESERVED") {
+          setUsernameStatus("reserved");
+        } else {
+          setUsernameStatus("invalid");
+        }
       } catch {
         setUsernameStatus("idle");
       }
@@ -67,6 +105,9 @@ export function AuthForm() {
         if (usernameStatus === "taken") {
           throw new Error("Este usuario ja esta em uso.");
         }
+        if (usernameStatus === "reserved") {
+          throw new Error("Este usuario e reservado. Escolha outro nome de usuario.");
+        }
 
         const registerResponse = await fetch("/api/auth/register", {
           method: "POST",
@@ -77,9 +118,11 @@ export function AuthForm() {
         if (!registerResponse.ok) {
           throw new Error(registerData.error ?? "Falha no cadastro.");
         }
-        setMessage("Cadastro criado. Agora faca login.");
+        setMessage("Quase la. Verifique seu e-mail e clique no link para ativar a conta.");
         setMode("login");
         setUsername("");
+        setEmail("");
+        setPassword("");
       } else {
         const loginResponse = await fetch("/api/auth/login", {
           method: "POST",
@@ -140,6 +183,9 @@ export function AuthForm() {
               {usernameStatus === "checking" ? <p className="statusHint">Verificando disponibilidade...</p> : null}
               {usernameStatus === "available" ? <p className="statusOk">Usuario disponivel.</p> : null}
               {usernameStatus === "taken" ? <p className="statusError">Usuario ja em uso.</p> : null}
+              {usernameStatus === "reserved" ? (
+                <p className="statusError">Nome reservado. Escolha outro usuario.</p>
+              ) : null}
               {usernameStatus === "invalid" ? (
                 <p className="statusError">Use 3-20 caracteres com letras, numeros e _.</p>
               ) : null}

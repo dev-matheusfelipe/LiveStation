@@ -4,7 +4,8 @@ Aplicacao web para assistir varios videos/canais do YouTube ao mesmo tempo, com 
 
 ## Funcionalidades
 
-- Cadastro e login com sessao em cookie.
+- Cadastro com verificacao por e-mail e login com sessao em cookie.
+- Bloqueio de usernames reservados/famosos no cadastro publico.
 - Area protegida (`/watch`) para usuarios autenticados.
 - Header com nome do site.
 - Campo para colar link do YouTube.
@@ -23,8 +24,11 @@ copy .env.example .env.local
 ```
 3. Defina `AUTH_SECRET` em `.env.local`.
 4. Defina `NEXT_PUBLIC_SITE_URL` com a URL publica do site.
-5. (Opcional) Defina `LIVESTATION_DATA_DIR` para persistencia do SQLite em producao.
-6. Rode:
+5. Para producao, defina `DATABASE_URL` (Postgres) para persistencia de usuarios.
+6. Configure SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) para envio do link de verificacao.
+7. Configure a conta padrao da Rizzer (`RIZZER_DEFAULT_*`).
+8. (Opcional) Defina `LIVESTATION_DATA_DIR` para SQLite local.
+9. Rode:
 ```bash
 npm run dev
 ```
@@ -36,8 +40,10 @@ npm run dev
 
 ## Observacoes
 
-- Usuarios sao gravados em SQLite (`livestation.sqlite`), com fallback para diretorio temporario quando necessario.
-- Para producao, o ideal e definir `LIVESTATION_DATA_DIR` em um volume persistente ou migrar para banco gerenciado.
+- Quando `DATABASE_URL` esta definido, usuarios sao persistidos em Postgres.
+- Sem `DATABASE_URL`, o projeto usa SQLite (`livestation.sqlite`) com fallback local/temporario para desenvolvimento.
+- Em producao, o cadastro depende da verificacao por e-mail (link enviado via SMTP).
+- A conta padrao da Rizzer pode ser provisionada automaticamente via variaveis `RIZZER_DEFAULT_*`.
 
 ## SEO e Indexacao
 

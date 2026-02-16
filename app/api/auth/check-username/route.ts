@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findUserByUsername } from "@/lib/user-store";
+import { evaluateUsernamePolicy } from "@/lib/username-policy";
 
 function isValidUsername(username: string): boolean {
   return /^[a-zA-Z0-9_]{3,20}$/.test(username);
@@ -15,6 +16,11 @@ export async function GET(request: Request) {
 
   if (!isValidUsername(username)) {
     return NextResponse.json({ available: false, reason: "INVALID" }, { status: 200 });
+  }
+
+  const usernamePolicy = evaluateUsernamePolicy(username);
+  if (!usernamePolicy.allowed) {
+    return NextResponse.json({ available: false, reason: "RESERVED" }, { status: 200 });
   }
 
   const existing = await findUserByUsername(username);

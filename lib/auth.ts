@@ -5,9 +5,18 @@ const scrypt = promisify(scryptCallback);
 
 export const SESSION_COOKIE = "livestation_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+export const EMAIL_VERIFICATION_TTL_SECONDS = 60 * 30;
 
 type SessionPayload = {
   email: string;
+  exp: number;
+};
+
+type EmailVerificationPayload = {
+  typ: "verify_email";
+  email: string;
+  username: string;
+  passwordHash: string;
   exp: number;
 };
 
@@ -58,6 +67,19 @@ export function createSessionToken(email: string): string {
   const payload: SessionPayload = {
     email,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
+  };
+  const encoded = base64UrlEncode(JSON.stringify(payload));
+  const signature = sign(encoded);
+  return `${encoded}.${signature}`;
+}
+
+export function createEmailVerificationToken(email: string, username: string, passwordHash: string): string {
+  const payload: EmailVerificationPayload = {
+    typ: "verify_email",
+    email: email.trim().toLowerCase(),
+    username: username.trim().toLowerCase(),
+    passwordHash,
+    exp: Math.floor(Date.now() / 1000) + EMAIL_VERIFICATION_TTL_SECONDS
   };
   const encoded = base64UrlEncode(JSON.stringify(payload));
   const signature = sign(encoded);
@@ -126,6 +148,46 @@ export function verifySessionToken(token?: string): SessionPayload | null {
   try {
     const payload = JSON.parse(base64UrlDecode(encoded)) as SessionPayload;
     if (!payload.email || !payload.exp) {
+      return null;
+    }
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyEmailVerificationToken(token?: string): EmailVerificationPayload | null {
+  if (!token) {
+    return null;
+  }
+
+  const [encoded, signature] = token.split(".");
+  if (!encoded || !signature) {
+    return null;
+  }
+
+  const expected = sign(encoded);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return null;
+  }
+  if (!timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encoded)) as EmailVerificationPayload;
+    if (
+      payload.typ !== "verify_email" ||
+      !payload.email ||
+      !payload.username ||
+      !payload.passwordHash ||
+      !payload.exp
+    ) {
       return null;
     }
     if (payload.exp < Math.floor(Date.now() / 1000)) {

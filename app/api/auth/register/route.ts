@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { hasSameOrigin, hashPassword, isStrongPassword } from "@/lib/auth";
-import { createUser } from "@/lib/user-store";
+import { createEmailVerificationToken, hasSameOrigin, hashPassword, isStrongPassword } from "@/lib/auth";
+import { sendVerificationEmail } from "@/lib/mailer";
+import { findUserByEmail, findUserByUsername } from "@/lib/user-store";
+import { getSiteUrl } from "@/lib/site";
+import { evaluateUsernamePolicy } from "@/lib/username-policy";
 
 type RegisterBody = {
   email?: string;
@@ -37,16 +40,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error }, { status: 400 });
     }
 
+    const usernamePolicy = evaluateUsernamePolicy(username);
+    if (!usernamePolicy.allowed) {
+      return NextResponse.json(
+        { error: "Este usuario e reservado. Escolha outro nome de usuario." },
+        { status: 400 }
+      );
+    }
+
+    const emailExists = await findUserByEmail(email);
+    if (emailExists) {
+      return NextResponse.json({ error: "Este e-mail ja esta cadastrado." }, { status: 409 });
+    }
+    const usernameExists = await findUserByUsername(username);
+    if (usernameExists) {
+      return NextResponse.json({ error: "Este usuario ja esta em uso." }, { status: 409 });
+    }
+
     const passwordHash = await hashPassword(password);
-    await createUser(email, passwordHash, username);
+    const token = createEmailVerificationToken(email, username, passwordHash);
+    const verifyUrl = `${getSiteUrl()}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    await sendVerificationEmail(email, username, verifyUrl);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof Error && error.message === "EMAIL_ALREADY_EXISTS") {
-      return NextResponse.json({ error: "Este e-mail ja esta cadastrado." }, { status: 409 });
-    }
-    if (error instanceof Error && error.message === "USERNAME_ALREADY_EXISTS") {
-      return NextResponse.json({ error: "Este usuario ja esta em uso." }, { status: 409 });
+    if (error instanceof Error && error.message === "SMTP_NOT_CONFIGURED") {
+      return NextResponse.json(
+        { error: "Cadastro indisponivel no momento. Configuracao de e-mail pendente." },
+        { status: 503 }
+      );
     }
     console.error("[auth/register] unexpected error", error);
     return NextResponse.json({ error: "Falha ao cadastrar usuario." }, { status: 500 });
