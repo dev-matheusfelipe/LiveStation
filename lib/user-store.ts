@@ -76,13 +76,26 @@ export async function createUser(email: string, passwordHash: string, username: 
   }
 
   const now = new Date().toISOString();
-  db.prepare(
+  try {
+    db.prepare(
+      `
+      INSERT INTO users (
+        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
-    INSERT INTO users (
-      email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `
-  ).run(emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0);
+    ).run(emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0);
+  } catch (error) {
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      if (message.includes("unique constraint failed: users.email")) {
+        throw new Error("EMAIL_ALREADY_EXISTS");
+      }
+      if (message.includes("unique constraint failed: users.username")) {
+        throw new Error("USERNAME_ALREADY_EXISTS");
+      }
+    }
+    throw error;
+  }
 
   const user = await findUserByEmail(emailNormalized);
   if (!user) {
@@ -145,4 +158,3 @@ export async function updateUserPresence(email: string, activeVideos?: number): 
   }
   return updated;
 }
-

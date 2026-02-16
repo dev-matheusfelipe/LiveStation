@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
+import os from "os";
 import path from "path";
 
 type JsonUser = {
@@ -22,9 +23,59 @@ type JsonMessage = {
   createdAt: string;
 };
 
-const dataDir = path.join(process.cwd(), "data");
-const dbPath = path.join(dataDir, "livestation.sqlite");
+const projectDataDir = path.join(process.cwd(), "data");
+const tmpFallbackDataDir = path.join(os.tmpdir(), "livestation-data");
 const migrationsDir = path.join(process.cwd(), "db", "migrations");
+
+function isWritableDirectory(dirPath: string): boolean {
+  try {
+    mkdirSync(dirPath, { recursive: true });
+    accessSync(dirPath, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveDataDir(): string {
+  const configured = process.env.LIVESTATION_DATA_DIR ?? process.env.DATA_DIR;
+  if (configured && isWritableDirectory(configured)) {
+    return configured;
+  }
+
+  if (isWritableDirectory(projectDataDir)) {
+    return projectDataDir;
+  }
+
+  if (isWritableDirectory(tmpFallbackDataDir)) {
+    return tmpFallbackDataDir;
+  }
+
+  // Last fallback so the original error message is still surfaced by SQLite.
+  return projectDataDir;
+}
+
+function listDataDirCandidates(): string[] {
+  const candidates: string[] = [];
+  const configured = process.env.LIVESTATION_DATA_DIR ?? process.env.DATA_DIR;
+  if (configured) {
+    candidates.push(configured);
+  }
+  candidates.push(resolveDataDir());
+  candidates.push(tmpFallbackDataDir);
+  candidates.push(projectDataDir);
+
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = path.resolve(candidate);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      unique.push(normalized);
+    }
+  }
+  return unique;
+}
 
 let cachedDb: Database.Database | null = null;
 
@@ -40,11 +91,13 @@ function safeReadJson<T>(filePath: string, fallback: T): T {
   }
 }
 
-function migrateJsonIfNeeded(db: Database.Database): void {
+function migrateJsonIfNeeded(db: Database.Database, dataDir: string): void {
+  const usersSeedPath = existsSync(path.join(dataDir, "users.json"))
+    ? path.join(dataDir, "users.json")
+    : path.join(projectDataDir, "users.json");
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
   if (userCount.count === 0) {
-    const usersPath = path.join(dataDir, "users.json");
-    const users = safeReadJson<JsonUser[]>(usersPath, []);
+    const users = safeReadJson<JsonUser[]>(usersSeedPath, []);
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO users (
         email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
@@ -66,10 +119,12 @@ function migrateJsonIfNeeded(db: Database.Database): void {
     }
   }
 
+  const messagesSeedPath = existsSync(path.join(dataDir, "chat.json"))
+    ? path.join(dataDir, "chat.json")
+    : path.join(projectDataDir, "chat.json");
   const messageCount = db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
   if (messageCount.count === 0) {
-    const messagesPath = path.join(dataDir, "chat.json");
-    const messages = safeReadJson<JsonMessage[]>(messagesPath, []);
+    const messages = safeReadJson<JsonMessage[]>(messagesSeedPath, []);
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO messages (
         id, user_email, user_name, avatar_data_url, text, created_at
@@ -122,22 +177,43 @@ function runMigrations(db: Database.Database): void {
   }
 }
 
-function initialize(db: Database.Database): void {
+function initialize(db: Database.Database, dataDir: string): void {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
   `);
   runMigrations(db);
-  migrateJsonIfNeeded(db);
+  migrateJsonIfNeeded(db, dataDir);
+}
+
+function isSqliteCantOpenError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as { code?: string }).code;
+  return code === "SQLITE_CANTOPEN";
 }
 
 export function getDb(): Database.Database {
   if (cachedDb) {
     return cachedDb;
   }
-  mkdirSync(dataDir, { recursive: true });
-  const db = new Database(dbPath);
-  initialize(db);
-  cachedDb = db;
-  return db;
+
+  let lastError: unknown;
+  for (const candidateDir of listDataDirCandidates()) {
+    try {
+      mkdirSync(candidateDir, { recursive: true });
+      const db = new Database(path.join(candidateDir, "livestation.sqlite"));
+      initialize(db, candidateDir);
+      cachedDb = db;
+      return db;
+    } catch (error) {
+      lastError = error;
+      if (!isSqliteCantOpenError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Failed to open SQLite database.");
 }

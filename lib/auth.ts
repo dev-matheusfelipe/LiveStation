@@ -53,12 +53,28 @@ export function isStrongPassword(password: string): boolean {
 export function hasSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host) {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (!origin) {
     return true;
   }
   try {
     const originUrl = new URL(origin);
-    return originUrl.host === host;
+    const allowedHosts = new Set<string>();
+    if (host) {
+      allowedHosts.add(host.trim().toLowerCase());
+    }
+    if (forwardedHost) {
+      for (const value of forwardedHost.split(",")) {
+        const normalized = value.trim().toLowerCase();
+        if (normalized) {
+          allowedHosts.add(normalized);
+        }
+      }
+    }
+    if (allowedHosts.size === 0) {
+      return true;
+    }
+    return allowedHosts.has(originUrl.host.toLowerCase());
   } catch {
     return false;
   }
