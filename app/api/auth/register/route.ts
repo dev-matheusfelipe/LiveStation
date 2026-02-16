@@ -64,7 +64,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof Error && error.message === "SMTP_NOT_CONFIGURED") {
+    if (error instanceof Error && error.message.startsWith("SMTP_NOT_CONFIGURED")) {
+      console.error("[auth/register] smtp config missing", error.message);
       return NextResponse.json(
         { error: "Cadastro indisponivel no momento. Configuracao de e-mail pendente." },
         { status: 503 }

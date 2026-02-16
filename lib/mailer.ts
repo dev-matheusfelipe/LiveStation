@@ -9,9 +9,13 @@ type MailConfig = {
   from: string;
 };
 
+type MailConfigResolution =
+  | { ok: true; config: MailConfig }
+  | { ok: false; missing: string[] };
+
 let cachedTransporter: nodemailer.Transporter | null = null;
 
-function getMailConfig(): MailConfig | null {
+function getMailConfig(): MailConfigResolution {
   const host = process.env.SMTP_HOST?.trim();
   const portRaw = process.env.SMTP_PORT?.trim();
   const secureRaw = process.env.SMTP_SECURE?.trim();
@@ -19,23 +23,34 @@ function getMailConfig(): MailConfig | null {
   const pass = process.env.SMTP_PASS?.trim();
   const from = process.env.SMTP_FROM?.trim();
 
-  if (!host || !portRaw || !from) {
-    return null;
+  const missing: string[] = [];
+  if (!host) missing.push("SMTP_HOST");
+  if (!portRaw) missing.push("SMTP_PORT");
+  if (!from) missing.push("SMTP_FROM");
+
+  if (missing.length > 0) {
+    return { ok: false, missing };
   }
 
-  const port = Number.parseInt(portRaw, 10);
+  const hostValue = host as string;
+  const portRawValue = portRaw as string;
+  const fromValue = from as string;
+  const port = Number.parseInt(portRawValue, 10);
   if (!Number.isFinite(port) || port <= 0) {
-    return null;
+    return { ok: false, missing: ["SMTP_PORT"] };
   }
 
   const secure = secureRaw === "true";
   return {
-    host,
-    port,
-    secure,
-    user: user || undefined,
-    pass: pass || undefined,
-    from
+    ok: true,
+    config: {
+      host: hostValue,
+      port,
+      secure,
+      user: user || undefined,
+      pass: pass || undefined,
+      from: fromValue
+    }
   };
 }
 
@@ -55,17 +70,18 @@ function getTransporter(config: MailConfig): nodemailer.Transporter {
 }
 
 export async function sendVerificationEmail(toEmail: string, username: string, verifyUrl: string): Promise<void> {
-  const config = getMailConfig();
+  const configResult = getMailConfig();
 
-  if (!config) {
+  if (!configResult.ok) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("SMTP_NOT_CONFIGURED");
+      throw new Error(`SMTP_NOT_CONFIGURED:${configResult.missing.join(",")}`);
     }
 
     console.log(`[mail/dev] verification link for ${toEmail} (${username}): ${verifyUrl}`);
     return;
   }
 
+  const config = configResult.config;
   const transporter = getTransporter(config);
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
