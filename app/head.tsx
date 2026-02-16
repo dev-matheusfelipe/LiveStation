@@ -1,9 +1,5 @@
 export default function Head() {
-  const adClient = process.env.NEXT_PUBLIC_ADSENSE_CLIENT?.trim();
-
-  if (!adClient) {
-    return null;
-  }
+  const adClient = "ca-pub-6668886677129882";
 
   return (
     <script
