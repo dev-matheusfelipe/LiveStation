@@ -22,7 +22,9 @@ npm install
 copy .env.example .env.local
 ```
 3. Defina `AUTH_SECRET` em `.env.local`.
-4. Rode:
+4. Defina `NEXT_PUBLIC_SITE_URL` com a URL publica do site.
+5. (Opcional) Defina `LIVESTATION_DATA_DIR` para persistencia do SQLite em producao.
+6. Rode:
 ```bash
 npm run dev
 ```
@@ -34,6 +36,18 @@ npm run dev
 
 ## Observacoes
 
-- Usuarios sao gravados em `data/users.json` (MVP local).
-- Para producao, o ideal e trocar por banco de dados real.
-# LiveStation
+- Usuarios sao gravados em SQLite (`livestation.sqlite`), com fallback para diretorio temporario quando necessario.
+- Para producao, o ideal e definir `LIVESTATION_DATA_DIR` em um volume persistente ou migrar para banco gerenciado.
+
+## SEO e Indexacao
+
+- `robots.txt`: `/robots.txt`
+- `sitemap.xml`: `/sitemap.xml`
+- `manifest.webmanifest`: `/manifest.webmanifest`
+- Rotas privadas (`/watch` e `/api/*`) estao marcadas para nao indexacao.
+
+Depois de publicar:
+
+1. Cadastre o dominio no Google Search Console e no Bing Webmaster Tools.
+2. Envie o sitemap `https://seu-dominio.com/sitemap.xml`.
+3. Solicite indexacao da home e da pagina de login.
