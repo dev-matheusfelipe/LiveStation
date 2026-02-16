@@ -41,6 +41,12 @@ export const metadata: Metadata = {
     index: true,
     follow: true
   },
+  verification: {
+    google: "L6JWMUEFQwWHy6A9ap5hT5E9LVDNJz41Y378YYIxsks",
+    other: {
+      "msvalidate.01": "DF375BD3D49EFF9E18C646B7E8685A2F"
+    }
+  },
   icons: {
     icon: "/icon.png",
     apple: "/icon.png"
