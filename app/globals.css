@@ -1784,8 +1784,8 @@ input {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     align-content: start;
-    gap: 10px;
-    overflow: visible;
+    gap: 8px;
+    overflow: hidden;
   }
 
   .linkBar form {
@@ -1818,8 +1818,8 @@ input {
   }
 
   .sidebar {
-    max-height: none;
-    overflow: visible;
+    max-height: 120px;
+    overflow: auto;
     gap: 6px;
     padding: 8px;
   }
@@ -1877,12 +1877,14 @@ input {
   }
 
   .videoGrid {
-    height: auto;
+    height: 100%;
     gap: 6px;
+    align-content: start;
+    grid-auto-rows: minmax(170px, 1fr);
   }
 
   .videoSlot {
-    min-height: 188px;
+    min-height: 170px;
   }
 
   .slotHeader {
@@ -1975,6 +1977,41 @@ input {
 
   .footerMeta {
     font-size: 10px;
+  }
+}
+
+@media (max-width: 960px) and (orientation: landscape) {
+  .watchHeader {
+    padding: 7px 9px;
+    gap: 6px;
+  }
+
+  .watchHeader h1 {
+    font-size: clamp(22px, 4.5vw, 28px);
+  }
+
+  .sidebar {
+    max-height: 74px;
+    padding: 6px 8px;
+  }
+
+  .videoGrid {
+    gap: 5px;
+    grid-auto-rows: minmax(136px, 1fr);
+  }
+
+  .videoSlot {
+    min-height: 136px;
+  }
+
+  .slotHeader {
+    min-height: 30px;
+    padding: 6px 7px 5px;
+  }
+
+  .watchFooter {
+    min-height: 34px;
+    padding: 4px 8px;
   }
 }
 

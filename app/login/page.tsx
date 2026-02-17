@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { findUserByEmail } from "@/lib/user-store";
 import { AuthForm } from "@/components/auth-form";
 
 export const metadata: Metadata = {
@@ -21,7 +22,10 @@ export default async function LoginPage() {
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   const session = verifySessionToken(token);
   if (session) {
-    redirect("/watch");
+    const user = await findUserByEmail(session.email);
+    if (user) {
+      redirect("/watch");
+    }
   }
   return <AuthForm />;
 }

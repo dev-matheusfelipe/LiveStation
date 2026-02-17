@@ -41,6 +41,7 @@ const SUSPENDED_HEIGHT = 246;
 const ICON_SIZE = 14;
 const AUTO_LAYOUT_DELAY_MS = 90_000;
 const PRESENCE_HEARTBEAT_MS = 5_000;
+const APP_VERSION = "v0.4.2";
 
 type ChatWindowState = {
   id: string;
@@ -144,6 +145,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const [errorBySlot, setErrorBySlot] = useState<Record<number, string | null>>({});
   const [isLightMode, setIsLightMode] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isPortraitViewport, setIsPortraitViewport] = useState(true);
   const [chatWindows, setChatWindows] = useState<ChatWindowState[]>([]);
   const [zCounter, setZCounter] = useState(1);
   const [embedDomain, setEmbedDomain] = useState("localhost");
@@ -205,11 +207,19 @@ export function WatchStation({ email }: WatchStationProps) {
     }
     return LAYOUTS.find((item) => item.id === layoutId) ?? LAYOUTS[2];
   }, [layoutId]);
-  const effectiveColumns = layout
-    ? isMobileViewport && layout.id === "duo"
-      ? 1
-      : layout.columns
-    : 0;
+  const effectiveColumns = useMemo(() => {
+    if (!layout) {
+      return 0;
+    }
+    if (!isMobileViewport) {
+      return layout.columns;
+    }
+
+    const portraitTargetColumns = layout.maxSlots <= 2 ? 1 : 2;
+    const landscapeTargetColumns = layout.maxSlots <= 4 ? 2 : 3;
+    const targetColumns = isPortraitViewport ? portraitTargetColumns : landscapeTargetColumns;
+    return Math.max(1, Math.min(layout.columns, targetColumns));
+  }, [layout, isMobileViewport, isPortraitViewport]);
   const rowCount = layout ? Math.ceil(layout.maxSlots / effectiveColumns) : 0;
   const useAutoRowsOnMobile = isMobileViewport && effectiveColumns === 1;
   const logoSrc = isLightMode ? "/rizzer-logo-dark.png" : "/rizzer-logo-light.png";
@@ -234,7 +244,8 @@ export function WatchStation({ email }: WatchStationProps) {
         }
         const data = (await response.json()) as { watchSeconds?: number };
         if (typeof data.watchSeconds === "number" && Number.isFinite(data.watchSeconds)) {
-          setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds)));
+          const nextSeconds = Math.max(0, Math.floor(data.watchSeconds));
+          setProfileWatchSeconds((prev) => Math.max(prev, nextSeconds));
         }
       } catch {
         // ignore presence errors
@@ -260,6 +271,14 @@ export function WatchStation({ email }: WatchStationProps) {
   }, []);
 
   useEffect(() => {
+    const portrait = window.matchMedia("(orientation: portrait)");
+    const onChange = () => setIsPortraitViewport(portrait.matches);
+    onChange();
+    portrait.addEventListener("change", onChange);
+    return () => portrait.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     setEmbedDomain(window.location.hostname || "localhost");
     setEmbedOrigin(window.location.origin || "http://localhost");
   }, []);
@@ -279,7 +298,8 @@ export function WatchStation({ email }: WatchStationProps) {
         };
         setProfileName(data.username || data.displayName || initialName);
         setProfileAvatar(data.avatarDataUrl ?? null);
-        setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds ?? 0)));
+        const nextSeconds = Math.max(0, Math.floor(data.watchSeconds ?? 0));
+        setProfileWatchSeconds((prev) => Math.max(prev, nextSeconds));
       } catch {
         // keep default profile
       }
@@ -318,6 +338,47 @@ export function WatchStation({ email }: WatchStationProps) {
     }, PRESENCE_HEARTBEAT_MS);
     return () => clearInterval(timer);
   }, [sendPresenceUpdate]);
+
+  useEffect(() => {
+    const clampFloatingWindows = () => {
+      const area = screenAreaRef.current;
+      if (!area) {
+        return;
+      }
+      const rect = area.getBoundingClientRect();
+      const chatWidth = isMobileViewport ? Math.min(rect.width * 0.92, CHAT_WIDTH) : CHAT_WIDTH;
+      const chatHeight = isMobileViewport ? Math.min(rect.height * 0.58, CHAT_HEIGHT) : CHAT_HEIGHT;
+      const suspendedWidth = isMobileViewport ? Math.min(rect.width * 0.92, SUSPENDED_WIDTH) : SUSPENDED_WIDTH;
+      const suspendedHeight = isMobileViewport ? Math.min(rect.height * 0.42, SUSPENDED_HEIGHT) : SUSPENDED_HEIGHT;
+
+      setChatWindows((prev) =>
+        prev.map((item) => ({
+          ...item,
+          x: Math.min(Math.max(0, item.x), Math.max(0, rect.width - chatWidth - 4)),
+          y: Math.min(Math.max(0, item.y), Math.max(0, rect.height - chatHeight - 4))
+        }))
+      );
+      setSuspendedWindows((prev) =>
+        prev.map((item) => ({
+          ...item,
+          x: Math.min(Math.max(0, item.x), Math.max(0, rect.width - suspendedWidth - 4)),
+          y: Math.min(Math.max(0, item.y), Math.max(0, rect.height - suspendedHeight - 4))
+        }))
+      );
+      if (isMobileViewport) {
+        setVolumePanelSlot(null);
+      }
+    };
+
+    const timer = setTimeout(clampFloatingWindows, 30);
+    window.addEventListener("resize", clampFloatingWindows);
+    window.addEventListener("orientationchange", clampFloatingWindows);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", clampFloatingWindows);
+      window.removeEventListener("orientationchange", clampFloatingWindows);
+    };
+  }, [isMobileViewport, isPortraitViewport]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1018,7 +1079,8 @@ export function WatchStation({ email }: WatchStationProps) {
         setProfileAvatar(data.avatarDataUrl);
       }
       if (typeof data.watchSeconds === "number" && Number.isFinite(data.watchSeconds)) {
-        setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds)));
+        const nextSeconds = Math.max(0, Math.floor(data.watchSeconds));
+        setProfileWatchSeconds((prev) => Math.max(prev, nextSeconds));
       }
       setProfileError(null);
       return true;
@@ -1390,7 +1452,7 @@ export function WatchStation({ email }: WatchStationProps) {
                     {videoId ? (
                       <div className="slotVideoWrap">
                         <iframe
-                          src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(
+                          src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(
                             embedOrigin
                           )}`}
                           title={`YouTube ${videoId}`}
@@ -1559,7 +1621,7 @@ export function WatchStation({ email }: WatchStationProps) {
           <Image src={logoSrc} alt="" className="footerLogo" fill sizes="58px" />
         </span>
         <small className="footerText">LiveStation</small>
-        <small className="footerMeta">v1.0.0</small>
+        <small className="footerMeta">{APP_VERSION}</small>
         <small className="footerMeta">(c) 2026 Rizzer</small>
       </footer>
 
