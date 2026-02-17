@@ -41,7 +41,7 @@ const SUSPENDED_HEIGHT = 246;
 const ICON_SIZE = 14;
 const AUTO_LAYOUT_DELAY_MS = 90_000;
 const PRESENCE_HEARTBEAT_MS = 5_000;
-const APP_VERSION = "v0.4.2";
+const APP_VERSION = "v0.4.3";
 
 type ChatWindowState = {
   id: string;
@@ -75,6 +75,15 @@ type SiteMessage = {
   avatarDataUrl: string | null;
   text: string;
   createdAt: string;
+};
+
+type PersistedWatchState = {
+  layoutId: string | null;
+  slots: Array<string | null>;
+  slotMuted: Record<number, boolean>;
+  slotVolume: Record<number, number>;
+  slotHidden: Record<number, boolean>;
+  slotAudioEffectEnabled: Record<number, boolean>;
 };
 
 function formatMessageDateTime(value: string): string {
@@ -193,6 +202,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const autoLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mobileNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeVideosRef = useRef(0);
+  const watchStateHydratedRef = useRef(false);
   const dragStateRef = useRef<{
     offsetX: number;
     offsetY: number;
@@ -215,7 +225,7 @@ export function WatchStation({ email }: WatchStationProps) {
       return layout.columns;
     }
 
-    const portraitTargetColumns = layout.maxSlots <= 2 ? 1 : 2;
+    const portraitTargetColumns = layout.maxSlots === 1 ? 1 : 2;
     const landscapeTargetColumns = layout.maxSlots <= 4 ? 2 : 3;
     const targetColumns = isPortraitViewport ? portraitTargetColumns : landscapeTargetColumns;
     return Math.max(1, Math.min(layout.columns, targetColumns));
@@ -224,6 +234,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const useAutoRowsOnMobile = isMobileViewport && effectiveColumns === 1;
   const logoSrc = isLightMode ? "/rizzer-logo-dark.png" : "/rizzer-logo-light.png";
   const initials = (profileName || initialName).slice(0, 2).toUpperCase();
+  const watchStorageKey = useMemo(() => `livestation:watch:${email.toLowerCase()}`, [email]);
 
   const sendPresenceUpdate = useCallback(
     async (activeVideos: number, keepalive = false) => {
@@ -261,6 +272,88 @@ export function WatchStation({ email }: WatchStationProps) {
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(watchStorageKey);
+      if (!raw) {
+        watchStateHydratedRef.current = true;
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as PersistedWatchState;
+      const restoredLayout = parsed.layoutId ? LAYOUTS.find((item) => item.id === parsed.layoutId) : null;
+      if (!restoredLayout) {
+        watchStateHydratedRef.current = true;
+        return;
+      }
+
+      const restoredSlots = Array.from({ length: restoredLayout.maxSlots }, (_, index) => {
+        const value = parsed.slots?.[index];
+        return typeof value === "string" && value.trim() ? value : null;
+      });
+
+      const nextMuted: Record<number, boolean> = {};
+      const nextVolume: Record<number, number> = {};
+      const nextHidden: Record<number, boolean> = {};
+      const nextAudioEffect: Record<number, boolean> = {};
+
+      for (let index = 0; index < restoredSlots.length; index += 1) {
+        if (!restoredSlots[index]) {
+          continue;
+        }
+        nextMuted[index] = parsed.slotMuted?.[index] ?? true;
+        const storedVolume = parsed.slotVolume?.[index];
+        nextVolume[index] =
+          typeof storedVolume === "number" && Number.isFinite(storedVolume)
+            ? Math.max(0, Math.min(100, Math.floor(storedVolume)))
+            : 100;
+        nextHidden[index] = parsed.slotHidden?.[index] ?? false;
+        nextAudioEffect[index] = parsed.slotAudioEffectEnabled?.[index] ?? true;
+      }
+
+      setLayoutId(restoredLayout.id);
+      setSlots(restoredSlots);
+      setSlotInputs(Array.from({ length: restoredLayout.maxSlots }, () => ""));
+      setSlotMuted(nextMuted);
+      setSlotVolume(nextVolume);
+      setSlotHidden(nextHidden);
+      setSlotAudioEffectEnabled(nextAudioEffect);
+      setSelectedSlot(null);
+      setExpandedSlot(null);
+      setVolumePanelSlot(null);
+      setErrorBySlot({});
+    } catch {
+      // Ignore invalid local storage payload.
+    } finally {
+      watchStateHydratedRef.current = true;
+    }
+  }, [watchStorageKey]);
+
+  useEffect(() => {
+    if (!watchStateHydratedRef.current) {
+      return;
+    }
+
+    if (!layoutId) {
+      window.localStorage.removeItem(watchStorageKey);
+      return;
+    }
+
+    const payload: PersistedWatchState = {
+      layoutId,
+      slots,
+      slotMuted,
+      slotVolume,
+      slotHidden,
+      slotAudioEffectEnabled
+    };
+    try {
+      window.localStorage.setItem(watchStorageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota errors.
+    }
+  }, [layoutId, slots, slotMuted, slotVolume, slotHidden, slotAudioEffectEnabled, watchStorageKey]);
 
   useEffect(() => {
     const mobile = window.matchMedia("(max-width: 960px)");
@@ -529,7 +622,6 @@ export function WatchStation({ email }: WatchStationProps) {
 
   function onPlayerReady(slotIndex: number) {
     syncPlayerState(slotIndex);
-    sendPlayerCommand(slotIndex, "playVideo");
   }
 
   function toggleSlotMute(slotIndex: number) {

@@ -656,15 +656,15 @@ input {
 }
 
 .mobileTopActions {
-  margin-top: 6px;
+  margin-top: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mobileStatsButton {
   width: 100%;
-  height: 36px;
+  height: 38px;
   border: 1px solid rgba(255, 136, 73, 0.6);
   border-radius: 8px;
   color: #ffbd9f;
@@ -1782,10 +1782,14 @@ input {
     flex: 1;
     min-height: 0;
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     align-content: start;
     gap: 8px;
     overflow: hidden;
+  }
+
+  .screenArea {
+    order: 1;
   }
 
   .linkBar form {
@@ -1818,10 +1822,13 @@ input {
   }
 
   .sidebar {
-    max-height: 120px;
-    overflow: auto;
+    order: 2;
+    max-height: none;
+    overflow: visible;
     gap: 6px;
-    padding: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
 
   .layoutPickerDesktop {
@@ -1832,7 +1839,9 @@ input {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 34px;
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(255, 193, 69, 0.22);
   }
 
   .sidebar ul {
@@ -1856,6 +1865,7 @@ input {
 
   .openSiteChatButton {
     margin-top: 0;
+    height: 38px;
   }
 
   .siteStatsBox {
@@ -1991,8 +2001,8 @@ input {
   }
 
   .sidebar {
-    max-height: 74px;
-    padding: 6px 8px;
+    max-height: none;
+    padding: 0;
   }
 
   .videoGrid {
