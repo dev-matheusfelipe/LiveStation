@@ -5,10 +5,15 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { WatchStation } from "@/components/watch-station";
 
 export const metadata: Metadata = {
-  title: "Watch",
+  title: "Watch | LiveStation Rizzer",
+  description: "Area autenticada do LiveStation Rizzer para assistir e organizar multiplos canais em tela unica.",
+  alternates: {
+    canonical: "/watch"
+  },
   robots: {
     index: false,
-    follow: false
+    follow: false,
+    nocache: true
   }
 };
 
