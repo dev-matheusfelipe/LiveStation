@@ -3,7 +3,7 @@
   --bg-soft: #151b2a;
   --panel: #0f1421;
   --panel-2: #1a2235;
-  --line: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.055);
   --text: #f1f4fb;
   --muted: #a6b2cc;
   --accent: #ff5f2e;
@@ -318,11 +318,8 @@ input {
   background:
     linear-gradient(120deg, rgba(255, 95, 46, 0.08), transparent 35%),
     rgba(15, 20, 33, 0.9);
-  padding: 14px;
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  align-items: center;
 }
 
 .headerBrand {
@@ -371,12 +368,12 @@ input {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
-  background: linear-gradient(140deg, rgba(29, 37, 56, 0.82), rgba(18, 24, 38, 0.82));
+  border: none;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
-  padding: 10px 14px;
+  padding: 5px 5px;
   min-width: 210px;
   transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
@@ -387,7 +384,7 @@ input {
 }
 
 .headerProfileButton:active {
-  transform: translateY(1px);
+  transform: translateY(0.5px);
 }
 
 .statusDot {
@@ -431,7 +428,6 @@ input {
   height: 28px;
   border-radius: 999px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.24);
   background: rgba(255, 255, 255, 0.08);
   display: inline-grid;
   place-items: center;
@@ -1797,10 +1793,10 @@ input {
   }
 
   .watchHeader {
-    padding: 9px;
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
   }
 
   .headerBrand {
@@ -1812,13 +1808,23 @@ input {
   }
 
   .headerActions {
-    width: 100%;
-    justify-content: stretch;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .headerProfileButton {
-    width: 100%;
-    min-width: 0;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    border: none;
+    padding: 0;
+    border-radius: 999px;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .headerProfileText {
+    display: none;
   }
 
   .sidebar {
@@ -1876,21 +1882,16 @@ input {
     padding: 5px 0;
   }
 
-  .headerUserName {
-    font-size: 18px;
-    max-width: 180px;
-  }
-
   .headerAvatarLarge {
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
   }
 
   .videoGrid {
-    height: 100%;
-    gap: 6px;
-    align-content: start;
-    grid-auto-rows: minmax(170px, 1fr);
+    display: flex;
+    gap: 5px;
+    grid-auto-rows: minmax(136px, 1fr);
+    flex-direction: column;
   }
 
   .videoSlot {
@@ -2006,8 +2007,10 @@ input {
   }
 
   .videoGrid {
+    display: flex;
     gap: 5px;
     grid-auto-rows: minmax(136px, 1fr);
+    flex-direction: column;
   }
 
   .videoSlot {
