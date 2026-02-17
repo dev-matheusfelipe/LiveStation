@@ -40,6 +40,7 @@ const SUSPENDED_WIDTH = 420;
 const SUSPENDED_HEIGHT = 246;
 const ICON_SIZE = 14;
 const AUTO_LAYOUT_DELAY_MS = 90_000;
+const PRESENCE_HEARTBEAT_MS = 5_000;
 
 type ChatWindowState = {
   id: string;
@@ -81,6 +82,16 @@ function formatMessageDateTime(value: string): string {
     dateStyle: "short",
     timeStyle: "short"
   }).format(date);
+}
+
+function formatWatchDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 async function fileToOptimizedAvatarDataUrl(file: File): Promise<string> {
@@ -149,6 +160,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileName, setProfileName] = useState(initialName);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [profileWatchSeconds, setProfileWatchSeconds] = useState(0);
   const [avatarCenterLabel, setAvatarCenterLabel] = useState("Editar");
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profilePopoverPos, setProfilePopoverPos] = useState({ top: 72, left: 16 });
@@ -178,6 +190,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const previousActiveVideosRef = useRef(0);
   const autoLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mobileNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeVideosRef = useRef(0);
   const dragStateRef = useRef<{
     offsetX: number;
     offsetY: number;
@@ -201,6 +214,34 @@ export function WatchStation({ email }: WatchStationProps) {
   const useAutoRowsOnMobile = isMobileViewport && effectiveColumns === 1;
   const logoSrc = isLightMode ? "/rizzer-logo-dark.png" : "/rizzer-logo-light.png";
   const initials = (profileName || initialName).slice(0, 2).toUpperCase();
+
+  const sendPresenceUpdate = useCallback(
+    async (activeVideos: number, keepalive = false) => {
+      const payload = JSON.stringify({ activeVideos: Math.max(0, Math.floor(activeVideos)) });
+      try {
+        const response = await fetch("/api/site/presence", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive
+        });
+        if (response.status === 401) {
+          window.location.replace("/login");
+          return;
+        }
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as { watchSeconds?: number };
+        if (typeof data.watchSeconds === "number" && Number.isFinite(data.watchSeconds)) {
+          setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds)));
+        }
+      } catch {
+        // ignore presence errors
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: light)");
@@ -234,9 +275,11 @@ export function WatchStation({ email }: WatchStationProps) {
           username: string;
           displayName: string;
           avatarDataUrl: string | null;
+          watchSeconds?: number;
         };
         setProfileName(data.username || data.displayName || initialName);
         setProfileAvatar(data.avatarDataUrl ?? null);
+        setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds ?? 0)));
       } catch {
         // keep default profile
       }
@@ -264,23 +307,56 @@ export function WatchStation({ email }: WatchStationProps) {
   }, []);
 
   useEffect(() => {
-    async function sendPresence() {
-      try {
-        const activeVideos = slots.filter(Boolean).length;
-        await fetch("/api/site/presence", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ activeVideos })
-        });
-      } catch {
-        // ignore presence errors
-      }
-    }
+    const activeVideos = slots.filter(Boolean).length;
+    activeVideosRef.current = activeVideos;
+    void sendPresenceUpdate(activeVideos);
+  }, [slots, sendPresenceUpdate]);
 
-    sendPresence();
-    const timer = setInterval(sendPresence, 15_000);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void sendPresenceUpdate(activeVideosRef.current);
+    }, PRESENCE_HEARTBEAT_MS);
     return () => clearInterval(timer);
-  }, [slots]);
+  }, [sendPresenceUpdate]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (activeVideosRef.current > 0) {
+        setProfileWatchSeconds((prev) => prev + 1);
+      }
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const flushPresence = () => {
+      const activeVideos = activeVideosRef.current;
+      const payload = JSON.stringify({ activeVideos: Math.max(0, Math.floor(activeVideos)) });
+      try {
+        if (navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: "application/json" });
+          navigator.sendBeacon("/api/site/presence", blob);
+          return;
+        }
+      } catch {
+        // fallback to fetch below
+      }
+      void sendPresenceUpdate(activeVideos, true);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushPresence();
+      }
+    };
+
+    window.addEventListener("pagehide", flushPresence);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushPresence);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [sendPresenceUpdate]);
 
   useEffect(() => {
     slots.forEach((videoId, index) => {
@@ -428,6 +504,9 @@ export function WatchStation({ email }: WatchStationProps) {
       next[slotIndex] = id;
       return next;
     });
+    const activeVideosAfterAdd = slots[slotIndex] ? slots.filter(Boolean).length : slots.filter(Boolean).length + 1;
+    activeVideosRef.current = activeVideosAfterAdd;
+    void sendPresenceUpdate(activeVideosAfterAdd);
     setSlotMuted((prev) => ({ ...prev, [slotIndex]: true }));
     setSlotVolume((prev) => ({ ...prev, [slotIndex]: 100 }));
     setSlotHidden((prev) => ({ ...prev, [slotIndex]: false }));
@@ -457,6 +536,9 @@ export function WatchStation({ email }: WatchStationProps) {
     }
 
     setSlots(nextSlots);
+    const activeVideosAfterRemove = nextSlots.filter(Boolean).length;
+    activeVideosRef.current = activeVideosAfterRemove;
+    void sendPresenceUpdate(activeVideosAfterRemove);
     setSlotInputs(Array.from({ length: nextSlots.length }, () => ""));
     setErrorBySlot({});
 
@@ -924,12 +1006,19 @@ export function WatchStation({ email }: WatchStationProps) {
           avatarDataUrl: next.avatarDataUrl === undefined ? profileAvatar : next.avatarDataUrl
         })
       });
-      const data = (await response.json()) as { error?: string; avatarDataUrl?: string | null };
+      const data = (await response.json()) as {
+        error?: string;
+        avatarDataUrl?: string | null;
+        watchSeconds?: number;
+      };
       if (!response.ok) {
         throw new Error(data.error ?? "Erro ao salvar perfil.");
       }
       if (data.avatarDataUrl !== undefined) {
         setProfileAvatar(data.avatarDataUrl);
+      }
+      if (typeof data.watchSeconds === "number" && Number.isFinite(data.watchSeconds)) {
+        setProfileWatchSeconds(Math.max(0, Math.floor(data.watchSeconds)));
       }
       setProfileError(null);
       return true;
@@ -1546,6 +1635,10 @@ export function WatchStation({ email }: WatchStationProps) {
                   </span>
                 </div>
                 <span>{email}</span>
+                <div className="profileMiniStat">
+                  <span>Tempo assistindo</span>
+                  <strong>{formatWatchDuration(profileWatchSeconds)}</strong>
+                </div>
               </div>
             </section>
             <div className="profileForm">

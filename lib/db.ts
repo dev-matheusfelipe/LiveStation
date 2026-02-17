@@ -12,6 +12,7 @@ type JsonUser = {
   avatarDataUrl?: string | null;
   lastSeenAt?: string;
   activeVideos?: number;
+  watchSeconds?: number;
 };
 
 type JsonMessage = {
@@ -100,8 +101,8 @@ function migrateJsonIfNeeded(db: Database.Database, dataDir: string): void {
     const users = safeReadJson<JsonUser[]>(usersSeedPath, []);
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO users (
-        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos, watch_seconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const user of users) {
       const username = (user.username ?? user.displayName ?? user.email.split("@")[0] ?? user.email).toLowerCase();
@@ -114,7 +115,8 @@ function migrateJsonIfNeeded(db: Database.Database, dataDir: string): void {
         user.displayName ?? username,
         user.avatarDataUrl ?? null,
         user.lastSeenAt ?? createdAt,
-        Number.isFinite(user.activeVideos) ? Math.max(0, Math.floor(user.activeVideos as number)) : 0
+        Number.isFinite(user.activeVideos) ? Math.max(0, Math.floor(user.activeVideos as number)) : 0,
+        Number.isFinite(user.watchSeconds) ? Math.max(0, Math.floor(user.watchSeconds as number)) : 0
       );
     }
   }

@@ -45,8 +45,14 @@ export async function ensurePostgresSchema(): Promise<void> {
         display_name TEXT,
         avatar_data_url TEXT,
         last_seen_at TIMESTAMPTZ,
-        active_videos INTEGER DEFAULT 0
+        active_videos INTEGER DEFAULT 0,
+        watch_seconds BIGINT DEFAULT 0
       );
+    `);
+
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS watch_seconds BIGINT DEFAULT 0;
     `);
 
     await pool.query(`

@@ -24,7 +24,8 @@ export async function GET() {
     email: user.email,
     username: user.username,
     displayName: user.displayName ?? user.username,
-    avatarDataUrl: user.avatarDataUrl ?? null
+    avatarDataUrl: user.avatarDataUrl ?? null,
+    watchSeconds: Math.max(0, Math.floor(user.watchSeconds ?? 0))
   });
 }
 
@@ -72,6 +73,7 @@ export async function PATCH(request: Request) {
     email: user.email,
     username: user.username,
     displayName: user.displayName ?? user.username,
-    avatarDataUrl: user.avatarDataUrl ?? null
+    avatarDataUrl: user.avatarDataUrl ?? null,
+    watchSeconds: Math.max(0, Math.floor(user.watchSeconds ?? 0))
   });
 }

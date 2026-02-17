@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN watch_seconds INTEGER DEFAULT 0;

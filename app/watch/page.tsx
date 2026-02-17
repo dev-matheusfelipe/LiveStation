@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { findUserByEmail } from "@/lib/user-store";
 import { WatchStation } from "@/components/watch-station";
 
 export const metadata: Metadata = {
@@ -22,6 +23,10 @@ export default async function WatchPage() {
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   const session = verifySessionToken(token);
   if (!session) {
+    redirect("/login");
+  }
+  const user = await findUserByEmail(session.email);
+  if (!user) {
     redirect("/login");
   }
 

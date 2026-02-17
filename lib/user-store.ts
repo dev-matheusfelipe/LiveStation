@@ -12,6 +12,7 @@ export type StoredUser = {
   avatarDataUrl?: string | null;
   lastSeenAt?: string;
   activeVideos?: number;
+  watchSeconds?: number;
 };
 
 type UserRow = {
@@ -23,6 +24,7 @@ type UserRow = {
   avatar_data_url: string | null;
   last_seen_at: string | null;
   active_videos: number | null;
+  watch_seconds: number | null;
 };
 
 function normalizeRow(row: UserRow): StoredUser {
@@ -34,12 +36,28 @@ function normalizeRow(row: UserRow): StoredUser {
     displayName: row.display_name ?? row.username,
     avatarDataUrl: row.avatar_data_url ?? null,
     lastSeenAt: row.last_seen_at ?? row.created_at,
-    activeVideos: Number.isFinite(row.active_videos) ? (row.active_videos as number) : 0
+    activeVideos: Number.isFinite(row.active_videos) ? (row.active_videos as number) : 0,
+    watchSeconds: Number.isFinite(row.watch_seconds) ? Math.max(0, Math.floor(row.watch_seconds as number)) : 0
   };
 }
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function computeWatchIncrementSeconds(current: StoredUser, nextSeenAtIso: string, nextActiveVideos: number): number {
+  const previousSeenMs = current.lastSeenAt ? new Date(current.lastSeenAt).getTime() : 0;
+  const nextSeenMs = new Date(nextSeenAtIso).getTime();
+  if (!Number.isFinite(previousSeenMs) || !Number.isFinite(nextSeenMs) || nextSeenMs <= previousSeenMs) {
+    return 0;
+  }
+  if ((current.activeVideos ?? 0) <= 0 && nextActiveVideos <= 0) {
+    return 0;
+  }
+
+  // Presence heartbeat runs every ~15s; clamp long gaps to avoid accidental spikes.
+  const elapsedMs = Math.min(nextSeenMs - previousSeenMs, 120_000);
+  return Math.max(0, Math.floor(elapsedMs / 1000));
 }
 
 type DefaultRizzerConfig = {
@@ -92,21 +110,21 @@ async function ensureDefaultRizzerAccount(): Promise<void> {
       await pool.query(
         `
         INSERT INTO users (
-          email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos, watch_seconds
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT DO NOTHING
         `,
-        [config.email, config.username, passwordHash, now, "Rizzer", null, now, 0]
+        [config.email, config.username, passwordHash, now, "Rizzer", null, now, 0, 0]
       );
     } else {
       const db = getDb();
       db.prepare(
         `
         INSERT OR IGNORE INTO users (
-          email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos, watch_seconds
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
-      ).run(config.email, config.username, passwordHash, now, "Rizzer", null, now, 0);
+      ).run(config.email, config.username, passwordHash, now, "Rizzer", null, now, 0, 0);
     }
 
     defaultRizzerEnsured = true;
@@ -171,10 +189,10 @@ async function createUserPostgres(email: string, passwordHash: string, username:
     await pool.query(
       `
       INSERT INTO users (
-        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos, watch_seconds
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
-      [emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0]
+      [emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0, 0]
     );
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505") {
@@ -240,16 +258,19 @@ async function updateUserPresencePostgres(email: string, activeVideos?: number):
     typeof activeVideos === "number" && Number.isFinite(activeVideos)
       ? Math.max(0, Math.floor(activeVideos))
       : (current.activeVideos ?? 0);
+  const nextSeenAt = nowIso();
+  const watchIncrementSeconds = computeWatchIncrementSeconds(current, nextSeenAt, normalizedActiveVideos);
+  const nextWatchSeconds = Math.max(0, Math.floor(current.watchSeconds ?? 0) + watchIncrementSeconds);
 
   await ensurePostgresSchema();
   const pool = getPgPool();
   await pool.query(
     `
     UPDATE users
-    SET last_seen_at = $1, active_videos = $2
-    WHERE lower(email) = lower($3)
+    SET last_seen_at = $1, active_videos = $2, watch_seconds = $3
+    WHERE lower(email) = lower($4)
     `,
-    [nowIso(), normalizedActiveVideos, email.trim().toLowerCase()]
+    [nextSeenAt, normalizedActiveVideos, nextWatchSeconds, email.trim().toLowerCase()]
   );
 
   const updated = await findUserByEmailPostgres(email);
@@ -303,10 +324,10 @@ function createUserSqlite(email: string, passwordHash: string, username: string)
     db.prepare(
       `
       INSERT INTO users (
-        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        email, username, password_hash, created_at, display_name, avatar_data_url, last_seen_at, active_videos, watch_seconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
-    ).run(emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0);
+    ).run(emailNormalized, usernameNormalized, passwordHash, now, usernameNormalized, null, now, 0, 0);
   } catch (error) {
     if (error instanceof Error) {
       const message = error.message.toLowerCase();
@@ -368,15 +389,18 @@ function updateUserPresenceSqlite(email: string, activeVideos?: number): StoredU
     typeof activeVideos === "number" && Number.isFinite(activeVideos)
       ? Math.max(0, Math.floor(activeVideos))
       : (current.activeVideos ?? 0);
+  const nextSeenAt = nowIso();
+  const watchIncrementSeconds = computeWatchIncrementSeconds(current, nextSeenAt, normalizedActiveVideos);
+  const nextWatchSeconds = Math.max(0, Math.floor(current.watchSeconds ?? 0) + watchIncrementSeconds);
 
   const db = getDb();
   db.prepare(
     `
     UPDATE users
-    SET last_seen_at = ?, active_videos = ?
+    SET last_seen_at = ?, active_videos = ?, watch_seconds = ?
     WHERE lower(email) = lower(?)
     `
-  ).run(nowIso(), normalizedActiveVideos, email);
+  ).run(nextSeenAt, normalizedActiveVideos, nextWatchSeconds, email);
 
   const updated = findUserByEmailSqlite(email);
   if (!updated) {

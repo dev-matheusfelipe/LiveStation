@@ -7,7 +7,19 @@ type PresenceBody = {
   activeVideos?: number;
 };
 
-export async function PATCH(request: Request) {
+async function readPresenceBody(request: Request): Promise<PresenceBody> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await request.json()) as PresenceBody;
+  }
+  const raw = await request.text();
+  if (!raw) {
+    return {};
+  }
+  return JSON.parse(raw) as PresenceBody;
+}
+
+async function handlePresence(request: Request) {
   if (!hasSameOrigin(request)) {
     return NextResponse.json({ error: "Origem invalida." }, { status: 403 });
   }
@@ -20,11 +32,22 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as PresenceBody;
-    await updateUserPresence(session.email, body.activeVideos);
+    const body = await readPresenceBody(request);
+    const user = await updateUserPresence(session.email, body.activeVideos);
+    return NextResponse.json({ ok: true, watchSeconds: Math.max(0, Math.floor(user.watchSeconds ?? 0)) });
   } catch (error) {
+    if (error instanceof Error && error.message === "USER_NOT_FOUND") {
+      return NextResponse.json({ error: "Sessao invalida. Faca login novamente." }, { status: 401 });
+    }
     console.error("[site/presence] update failed", error);
     return NextResponse.json({ error: "Falha ao atualizar presenca." }, { status: 400 });
   }
-  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(request: Request) {
+  return handlePresence(request);
+}
+
+export async function POST(request: Request) {
+  return handlePresence(request);
 }
