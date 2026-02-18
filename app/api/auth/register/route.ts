@@ -27,7 +27,7 @@ function validate(email: string, password: string, username: string): string | n
 export async function POST(request: Request) {
   try {
     if (!hasSameOrigin(request)) {
-      return NextResponse.json({ error: "Origem invalida." }, { status: 403 });
+      return NextResponse.json({ error: "Origem invalida.", code: "AUTH_REGISTER_ORIGIN_INVALID" }, { status: 403 });
     }
 
     const body = (await request.json()) as RegisterBody;
@@ -37,24 +37,24 @@ export async function POST(request: Request) {
 
     const error = validate(email, password, username);
     if (error) {
-      return NextResponse.json({ error }, { status: 400 });
+      return NextResponse.json({ error, code: "AUTH_REGISTER_VALIDATION_FAILED" }, { status: 400 });
     }
 
     const usernamePolicy = evaluateUsernamePolicy(username);
     if (!usernamePolicy.allowed) {
       return NextResponse.json(
-        { error: "Este usuario e reservado. Escolha outro nome de usuario." },
+        { error: "Este usuario e reservado. Escolha outro nome de usuario.", code: "AUTH_REGISTER_USERNAME_RESERVED" },
         { status: 400 }
       );
     }
 
     const emailExists = await findUserByEmail(email);
     if (emailExists) {
-      return NextResponse.json({ error: "Este e-mail ja esta cadastrado." }, { status: 409 });
+      return NextResponse.json({ error: "Este e-mail ja esta cadastrado.", code: "AUTH_REGISTER_EMAIL_EXISTS" }, { status: 409 });
     }
     const usernameExists = await findUserByUsername(username);
     if (usernameExists) {
-      return NextResponse.json({ error: "Este usuario ja esta em uso." }, { status: 409 });
+      return NextResponse.json({ error: "Este usuario ja esta em uso.", code: "AUTH_REGISTER_USERNAME_EXISTS" }, { status: 409 });
     }
 
     const passwordHash = await hashPassword(password);
@@ -67,11 +67,14 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message.startsWith("SMTP_NOT_CONFIGURED")) {
       console.error("[auth/register] smtp config missing", error.message);
       return NextResponse.json(
-        { error: "Cadastro indisponivel no momento. Configuracao de e-mail pendente." },
+        {
+          error: "Cadastro indisponivel no momento. Configuracao de e-mail pendente.",
+          code: "AUTH_REGISTER_SMTP_NOT_CONFIGURED"
+        },
         { status: 503 }
       );
     }
     console.error("[auth/register] unexpected error", error);
-    return NextResponse.json({ error: "Falha ao cadastrar usuario." }, { status: 500 });
+    return NextResponse.json({ error: "Falha ao cadastrar usuario.", code: "AUTH_REGISTER_UNEXPECTED" }, { status: 500 });
   }
 }

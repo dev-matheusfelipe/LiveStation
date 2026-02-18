@@ -41,7 +41,8 @@ const SUSPENDED_HEIGHT = 246;
 const ICON_SIZE = 14;
 const AUTO_LAYOUT_DELAY_MS = 90_000;
 const PRESENCE_HEARTBEAT_MS = 5_000;
-const APP_VERSION = "v0.4.3";
+const MOBILE_MAX_VIDEOS = 3;
+const APP_VERSION = "v0.4.4";
 
 type ChatWindowState = {
   id: string;
@@ -225,13 +226,12 @@ export function WatchStation({ email }: WatchStationProps) {
       return layout.columns;
     }
 
-    const portraitTargetColumns = layout.maxSlots === 1 ? 1 : 2;
-    const landscapeTargetColumns = layout.maxSlots <= 4 ? 2 : 3;
-    const targetColumns = isPortraitViewport ? portraitTargetColumns : landscapeTargetColumns;
-    return Math.max(1, Math.min(layout.columns, targetColumns));
-  }, [layout, isMobileViewport, isPortraitViewport]);
-  const rowCount = layout ? Math.ceil(layout.maxSlots / effectiveColumns) : 0;
+    return 1;
+  }, [layout, isMobileViewport]);
+  const renderedSlotCount = layout ? Math.min(layout.maxSlots, isMobileViewport ? MOBILE_MAX_VIDEOS : layout.maxSlots) : 0;
+  const rowCount = renderedSlotCount ? Math.ceil(renderedSlotCount / effectiveColumns) : 0;
   const useAutoRowsOnMobile = isMobileViewport && effectiveColumns === 1;
+  const renderedSlots = useMemo(() => slots.slice(0, renderedSlotCount), [slots, renderedSlotCount]);
   const logoSrc = isLightMode ? "/rizzer-logo-dark.png" : "/rizzer-logo-light.png";
   const initials = (profileName || initialName).slice(0, 2).toUpperCase();
   const watchStorageKey = useMemo(() => `livestation:watch:${email.toLowerCase()}`, [email]);
@@ -424,6 +424,35 @@ export function WatchStation({ email }: WatchStationProps) {
     activeVideosRef.current = activeVideos;
     void sendPresenceUpdate(activeVideos);
   }, [slots, sendPresenceUpdate]);
+
+  useEffect(() => {
+    if (!isMobileViewport || !layout) {
+      return;
+    }
+
+    const limit = Math.min(layout.maxSlots, MOBILE_MAX_VIDEOS);
+    if (slots.length <= limit) {
+      return;
+    }
+
+    setSlots((prev) => prev.slice(0, limit));
+    setSlotInputs((prev) => prev.slice(0, limit));
+    setChatWindows((prev) => prev.filter((item) => item.slot < limit));
+    setSuspendedWindows((prev) => prev.filter((item) => item.slot < limit));
+    setSelectedSlot((current) => (current !== null && current >= limit ? null : current));
+    setExpandedSlot((current) => (current !== null && current >= limit ? null : current));
+    setVolumePanelSlot((current) => (current !== null && current >= limit ? null : current));
+    setErrorBySlot((prev) => {
+      const next: Record<number, string | null> = {};
+      for (const [index, value] of Object.entries(prev)) {
+        const slotIndex = Number(index);
+        if (Number.isFinite(slotIndex) && slotIndex < limit) {
+          next[slotIndex] = value;
+        }
+      }
+      return next;
+    });
+  }, [isMobileViewport, layout, slots.length]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -646,6 +675,10 @@ export function WatchStation({ email }: WatchStationProps) {
 
   function applyLinkToSlot(event: FormEvent, slotIndex: number) {
     event.preventDefault();
+    if (isMobileViewport && !slots[slotIndex] && slots.filter(Boolean).length >= MOBILE_MAX_VIDEOS) {
+      setErrorBySlot((prev) => ({ ...prev, [slotIndex]: `No mobile, limite maximo de ${MOBILE_MAX_VIDEOS} videos.` }));
+      return;
+    }
     const id = extractYouTubeVideoId(slotInputs[slotIndex] ?? "");
     if (!id) {
       setErrorBySlot((prev) => ({ ...prev, [slotIndex]: "Link invalido." }));
@@ -766,7 +799,8 @@ export function WatchStation({ email }: WatchStationProps) {
   const applyLayoutChange = useCallback(
     (nextLayout: LayoutPreset, sourceSlots: Array<string | null>) => {
       const compactedVideos = sourceSlots.filter(Boolean) as string[];
-      const nextSlots = Array.from({ length: nextLayout.maxSlots }, (_, index) => compactedVideos[index] ?? null);
+      const cappedMaxSlots = isMobileViewport ? Math.min(nextLayout.maxSlots, MOBILE_MAX_VIDEOS) : nextLayout.maxSlots;
+      const nextSlots = Array.from({ length: cappedMaxSlots }, (_, index) => compactedVideos[index] ?? null);
 
       if (layoutId === nextLayout.id) {
         setLayoutId(null);
@@ -789,7 +823,7 @@ export function WatchStation({ email }: WatchStationProps) {
 
       setLayoutId(nextLayout.id);
       setSlots(nextSlots);
-      setSlotInputs(Array.from({ length: nextLayout.maxSlots }, () => ""));
+      setSlotInputs(Array.from({ length: cappedMaxSlots }, () => ""));
       setErrorBySlot({});
       setSuspendedWindows([]);
       setExpandedSlot(null);
@@ -823,13 +857,13 @@ export function WatchStation({ email }: WatchStationProps) {
         if (current === null) {
           return null;
         }
-        return Math.min(current, nextLayout.maxSlots - 1);
+        return Math.min(current, cappedMaxSlots - 1);
       });
       setChatWindows([]);
       setPendingLayout(null);
       setSlotsToClose([]);
     },
-    [layoutId]
+    [layoutId, isMobileViewport]
   );
 
   useEffect(() => {
@@ -1226,10 +1260,13 @@ export function WatchStation({ email }: WatchStationProps) {
     }
 
     const rect = trigger.getBoundingClientRect();
-    const width = 360;
+    const isCompactViewport = window.matchMedia("(max-width: 960px)").matches;
+    const width = isCompactViewport ? Math.min(380, window.innerWidth - 16) : 360;
     const margin = 12;
-    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
-    const top = rect.bottom + 10;
+    const anchoredLeft = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+    const centeredLeft = Math.max(margin, Math.floor((window.innerWidth - width) / 2) - 8);
+    const left = isCompactViewport ? centeredLeft : anchoredLeft;
+    const top = Math.max(8, rect.bottom + 10);
     setProfilePopoverPos({ top, left });
     setProfileOpen(true);
   }
@@ -1375,7 +1412,7 @@ export function WatchStation({ email }: WatchStationProps) {
                     : "1fr"
               }}
             >
-              {slots.map((videoId, index) => {
+              {renderedSlots.map((videoId, index) => {
                 if (expandedSlot !== null && expandedSlot !== index) {
                   return null;
                 }

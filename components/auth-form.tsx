@@ -6,6 +6,7 @@ import { AdSenseUnit } from "@/components/adsense-unit";
 
 type Mode = "login" | "register";
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "reserved";
+type AuthApiError = { error?: string; code?: string };
 
 export function AuthForm() {
   const searchParams = useSearchParams();
@@ -18,6 +19,12 @@ export function AuthForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  function formatApiError(data: AuthApiError, fallback: string): string {
+    const code = data.code?.trim();
+    const text = data.error?.trim() || fallback;
+    return code ? `${text} (${code})` : text;
+  }
 
   useEffect(() => {
     const verify = searchParams.get("verify");
@@ -116,9 +123,9 @@ export function AuthForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username, email, password })
         });
-        const registerData = (await registerResponse.json()) as { error?: string };
+        const registerData = (await registerResponse.json()) as AuthApiError;
         if (!registerResponse.ok) {
-          throw new Error(registerData.error ?? "Falha no cadastro.");
+          throw new Error(formatApiError(registerData, "Falha no cadastro."));
         }
         setMessage("Quase la. Verifique seu e-mail e clique no link para ativar a conta.");
         setMode("login");
@@ -131,9 +138,9 @@ export function AuthForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
         });
-        const loginData = (await loginResponse.json()) as { error?: string };
+        const loginData = (await loginResponse.json()) as AuthApiError;
         if (!loginResponse.ok) {
-          throw new Error(loginData.error ?? "Falha no login.");
+          throw new Error(formatApiError(loginData, "Falha no login."));
         }
         window.location.replace("/watch");
       }

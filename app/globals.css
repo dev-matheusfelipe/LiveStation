@@ -89,6 +89,192 @@ input {
   background: rgba(10, 14, 24, 0.5);
 }
 
+.homeLanding {
+  min-height: 100vh;
+  padding: clamp(28px, 5vw, 72px);
+  display: grid;
+  align-content: center;
+  gap: clamp(20px, 3vw, 34px);
+  background:
+    radial-gradient(740px 420px at 12% 12%, rgba(255, 95, 46, 0.2), transparent 62%),
+    radial-gradient(920px 460px at 92% 8%, rgba(62, 123, 255, 0.18), transparent 62%),
+    linear-gradient(180deg, rgba(6, 10, 18, 0.94), rgba(4, 8, 16, 0.98));
+}
+
+.homeHero {
+  max-width: 960px;
+  display: grid;
+  gap: 12px;
+}
+
+.homeTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  align-items: center;
+  gap: clamp(16px, 3.5vw, 42px);
+}
+
+.homeKicker {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffd596;
+}
+
+.homeHero h1 {
+  margin: 0;
+  font-size: clamp(34px, 6.8vw, 72px);
+  line-height: 1.01;
+  letter-spacing: -0.02em;
+  max-width: 14ch;
+  text-wrap: balance;
+}
+
+.homeLead {
+  margin: 0;
+  max-width: 72ch;
+  color: #dce5fa;
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.35;
+}
+
+.homeLeadSoft {
+  color: var(--muted);
+  font-size: clamp(15px, 1.4vw, 19px);
+}
+
+.homeActions {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.homeAppPreview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.homeAppPreviewImg {
+  object-fit: cover;
+  object-position: center;
+}
+
+.homePreviewColumn {
+  display: grid;
+  gap: 10px;
+}
+
+.homeTags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 14px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+}
+
+.homeTags span {
+  display: inline-block;
+  color: #ffe9b7;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 10px rgba(255, 193, 69, 0.24);
+}
+
+.homePrimaryCta,
+.homeSecondaryCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.homePrimaryCta {
+  border: 1px solid rgba(255, 95, 46, 0.8);
+  color: #fff7ea;
+  background: linear-gradient(130deg, rgba(255, 95, 46, 0.32), rgba(255, 193, 69, 0.24));
+}
+
+.homeSecondaryCta {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #dbe7ff;
+  background: rgba(20, 28, 44, 0.7);
+}
+
+.homeValue {
+  max-width: 960px;
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 16px;
+}
+
+.homeValue h2 {
+  margin: 0;
+  font-size: clamp(24px, 3.2vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.homeValue p {
+  margin: 0;
+  color: #b8c6e4;
+  font-size: clamp(14px, 1.35vw, 17px);
+  line-height: 1.5;
+  max-width: 78ch;
+}
+
+.homeAdStrip {
+  border-top: 1px dashed rgba(255, 255, 255, 0.18);
+  padding-top: 10px;
+  min-height: 54px;
+}
+
+.homeRizzerMark {
+  position: fixed;
+  right: clamp(12px, 2.2vw, 24px);
+  bottom: clamp(12px, 2.4vw, 26px);
+  width: clamp(124px, 12vw, 176px);
+  height: clamp(28px, 3vw, 42px);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.homeRizzerMarkImg {
+  object-fit: contain;
+  object-position: right center;
+}
+
+@media (max-width: 980px) {
+  .homeTop {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .homeAppPreview {
+    aspect-ratio: 16 / 9;
+  }
+
+  .homeTags {
+    justify-content: flex-start;
+  }
+}
+
 .modeSwitch {
   margin-top: 16px;
   display: grid;
@@ -320,13 +506,17 @@ input {
     rgba(15, 20, 33, 0.9);
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  gap: 14px;
 }
 
 .headerBrand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 48px;
+  gap: 10px;
+  min-height: 46px;
+  min-width: 0;
 }
 
 .headerBadge {
@@ -346,8 +536,9 @@ input {
 
 .watchHeader h1 {
   margin: 0;
-  font-size: clamp(24px, 4vw, 40px);
+  font-size: clamp(22px, 3.3vw, 36px);
   line-height: 1.05;
+  white-space: nowrap;
 }
 
 .watchHeader p {
@@ -359,22 +550,25 @@ input {
 .headerActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 0;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .headerProfileButton {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-radius: 12px;
-  border: none;
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(140deg, rgba(29, 37, 56, 0.82), rgba(18, 24, 38, 0.82));
   color: var(--text);
   cursor: pointer;
-  padding: 5px 5px;
-  min-width: 210px;
+  padding: 8px 10px;
+  min-width: 168px;
+  max-width: 240px;
+  min-height: 52px;
   transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
 
@@ -405,10 +599,10 @@ input {
 
 .headerUserName {
   color: var(--text);
-  font-size: 21px;
+  font-size: 18px;
   line-height: 1;
   font-weight: 600;
-  max-width: 220px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -434,8 +628,8 @@ input {
 }
 
 .headerAvatarLarge {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
 }
 
 .headerAvatarImg {
@@ -1793,34 +1987,48 @@ input {
   }
 
   .watchHeader {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding: 8px 10px;
+    min-height: 58px;
   }
 
   .headerBrand {
     min-height: 0;
+    gap: 8px;
+    min-width: 0;
   }
 
   .watchHeader h1 {
-    font-size: clamp(26px, 7vw, 34px);
+    font-size: clamp(21px, 6vw, 28px);
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+
+  .headerBadge {
+    padding: 4px 7px;
+    font-size: 10px;
+    border-radius: 7px;
   }
 
   .headerActions {
     width: auto;
     justify-content: flex-end;
+    margin-left: auto;
+    padding: 0;
+    gap: 0;
   }
 
   .headerProfileButton {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
     border: none;
     padding: 0;
     border-radius: 999px;
     justify-content: center;
     gap: 0;
+    min-height: 40px;
   }
 
   .headerProfileText {
@@ -1883,19 +2091,21 @@ input {
   }
 
   .headerAvatarLarge {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
 
   .videoGrid {
-    display: flex;
+    display: grid;
     gap: 5px;
     grid-auto-rows: minmax(136px, 1fr);
-    flex-direction: column;
+    align-content: start;
+    width: 100%;
+    height: 100%;
   }
 
   .videoSlot {
-    min-height: 170px;
+    min-height: 150px;
   }
 
   .slotHeader {
@@ -1993,8 +2203,9 @@ input {
 
 @media (max-width: 960px) and (orientation: landscape) {
   .watchHeader {
-    padding: 7px 9px;
+    padding: 6px 8px;
     gap: 6px;
+    min-height: 52px;
   }
 
   .watchHeader h1 {
@@ -2014,7 +2225,7 @@ input {
   }
 
   .videoSlot {
-    min-height: 136px;
+    min-height: 124px;
   }
 
   .slotHeader {
