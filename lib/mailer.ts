@@ -106,3 +106,41 @@ export async function sendVerificationEmail(toEmail: string, username: string, v
     html
   });
 }
+
+export async function sendResetPasswordEmail(toEmail: string, username: string, resetUrl: string): Promise<void> {
+  const configResult = getMailConfig();
+
+  if (!configResult.ok) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`SMTP_NOT_CONFIGURED:${configResult.missing.join(",")}`);
+    }
+
+    console.log(`[mail/dev] reset password link for ${toEmail} (${username}): ${resetUrl}`);
+    return;
+  }
+
+  const config = configResult.config;
+  const transporter = getTransporter(config);
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+      <h2>Redefina sua senha no Rizzer LiveStation</h2>
+      <p>Oi, ${username}. Clique no botao abaixo para criar uma nova senha:</p>
+      <p>
+        <a href="${resetUrl}" style="display:inline-block;padding:10px 16px;background:#1f8cff;color:#fff;text-decoration:none;border-radius:6px;">
+          Redefinir senha
+        </a>
+      </p>
+      <p>Se o botao nao funcionar, copie e cole este link no navegador:</p>
+      <p>${resetUrl}</p>
+      <p>Este link expira em 30 minutos.</p>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: config.from,
+    to: toEmail,
+    subject: "Redefina sua senha - Rizzer LiveStation",
+    text: `Redefina sua senha acessando: ${resetUrl}`,
+    html
+  });
+}

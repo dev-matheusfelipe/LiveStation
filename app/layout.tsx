@@ -45,7 +45,11 @@ export const metadata: Metadata = {
     }
   },
   icons: {
-    icon: "/icon.png",
+    icon: [
+      { url: "/Logo_Favicon_512x512_Rizzer.ico", type: "image/x-icon" },
+      { url: "/icon.png", type: "image/png" }
+    ],
+    shortcut: "/Logo_Favicon_512x512_Rizzer.ico",
     apple: "/icon.png"
   }
 };

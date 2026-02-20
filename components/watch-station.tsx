@@ -42,7 +42,15 @@ const ICON_SIZE = 14;
 const AUTO_LAYOUT_DELAY_MS = 90_000;
 const PRESENCE_HEARTBEAT_MS = 5_000;
 const MOBILE_MAX_VIDEOS = 3;
-const APP_VERSION = "v0.4.4";
+const APP_VERSION = "v0.4.5";
+const BUG_TYPES: Array<{ value: BugType; label: string }> = [
+  { value: "ui", label: "Interface" },
+  { value: "audio", label: "Audio" },
+  { value: "video", label: "Video/Player" },
+  { value: "account", label: "Conta/Login" },
+  { value: "performance", label: "Performance" },
+  { value: "other", label: "Outro" }
+];
 
 type ChatWindowState = {
   id: string;
@@ -56,6 +64,7 @@ type SuspendedWindowState = {
   id: string;
   slot: number;
   videoId: string;
+  pinMode: "free" | "locked" | "global";
   x: number;
   y: number;
   z: number;
@@ -67,6 +76,9 @@ type SiteStats = {
   offlineUsers: number;
   totalActiveVideos: number;
   profilesWithAvatar: number;
+  totalWatchSeconds: number;
+  topWatcherName: string;
+  topWatcherSeconds: number;
 };
 
 type SiteMessage = {
@@ -78,9 +90,56 @@ type SiteMessage = {
   createdAt: string;
 };
 
+type SearchVideoResult = {
+  id: string;
+  title: string;
+  channelTitle: string;
+  thumbnail: string | null;
+};
+
+type SearchChannelResult = {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail: string | null;
+};
+
+type ChangelogEntry = {
+  version: string;
+  date: string;
+  improvements: string[];
+  fixes: string[];
+};
+
+type BugType = "ui" | "audio" | "video" | "account" | "performance" | "other";
+
+type BugReportItem = {
+  id: string;
+  userEmail: string;
+  userName: string;
+  avatarDataUrl: string | null;
+  bugType: BugType;
+  text: string;
+  imageDataUrl: string | null;
+  adminReply: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type PersistedWatchState = {
   layoutId: string | null;
   slots: Array<string | null>;
+  slotMuted: Record<number, boolean>;
+  slotVolume: Record<number, number>;
+  slotHidden: Record<number, boolean>;
+  slotAudioEffectEnabled: Record<number, boolean>;
+};
+
+type LayoutSnapshot = {
+  layoutId: string | null;
+  slots: Array<string | null>;
+  slotInputs: string[];
+  selectedSlot: number | null;
   slotMuted: Record<number, boolean>;
   slotVolume: Record<number, number>;
   slotHidden: Record<number, boolean>;
@@ -144,6 +203,11 @@ async function fileToOptimizedAvatarDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.86);
 }
 
+function formatBugTypeLabel(type: BugType): string {
+  const match = BUG_TYPES.find((item) => item.value === type);
+  return match?.label ?? "Outro";
+}
+
 export function WatchStation({ email }: WatchStationProps) {
   const router = useRouter();
   const initialName = email.split("@")[0] ?? email;
@@ -165,24 +229,62 @@ export function WatchStation({ email }: WatchStationProps) {
   const [slotHidden, setSlotHidden] = useState<Record<number, boolean>>({});
   const [slotAudioEffectEnabled, setSlotAudioEffectEnabled] = useState<Record<number, boolean>>({});
   const [volumePanelSlot, setVolumePanelSlot] = useState<number | null>(null);
+  const [suspendedVolumePanelId, setSuspendedVolumePanelId] = useState<string | null>(null);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [suspendedWindows, setSuspendedWindows] = useState<SuspendedWindowState[]>([]);
 
   const [profileOpen, setProfileOpen] = useState(false);
+  const [passwordPopupOpen, setPasswordPopupOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
+  const [updatesList, setUpdatesList] = useState<ChangelogEntry[]>([]);
+  const [updatesError, setUpdatesError] = useState<string | null>(null);
+  const [bugPopupOpen, setBugPopupOpen] = useState(false);
+  const [bugLoading, setBugLoading] = useState(false);
+  const [bugSubmitting, setBugSubmitting] = useState(false);
+  const [bugError, setBugError] = useState<string | null>(null);
+  const [bugType, setBugType] = useState<BugType>("ui");
+  const [bugText, setBugText] = useState("");
+  const [bugImageDataUrl, setBugImageDataUrl] = useState<string | null>(null);
+  const [bugImageLoading, setBugImageLoading] = useState(false);
+  const [bugReports, setBugReports] = useState<BugReportItem[]>([]);
+  const [bugIsAdmin, setBugIsAdmin] = useState(false);
+  const [editingBugId, setEditingBugId] = useState<string | null>(null);
+  const [editingBugText, setEditingBugText] = useState("");
+  const [editingBugType, setEditingBugType] = useState<BugType>("ui");
+  const [editingBugImageDataUrl, setEditingBugImageDataUrl] = useState<string | null>(null);
+  const [replyingBugId, setReplyingBugId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileName, setProfileName] = useState(initialName);
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const [profileWatchSeconds, setProfileWatchSeconds] = useState(0);
   const [avatarCenterLabel, setAvatarCenterLabel] = useState("Editar");
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordNext, setPasswordNext] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
   const [profilePopoverPos, setProfilePopoverPos] = useState({ top: 72, left: 16 });
   const [siteStats, setSiteStats] = useState<SiteStats>({
     totalUsers: 0,
     onlineUsers: 0,
     offlineUsers: 0,
     totalActiveVideos: 0,
-    profilesWithAvatar: 0
+    profilesWithAvatar: 0,
+    totalWatchSeconds: 0,
+    topWatcherName: "-",
+    topWatcherSeconds: 0
   });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchVideos, setSearchVideos] = useState<SearchVideoResult[]>([]);
+  const [searchChannels, setSearchChannels] = useState<SearchChannelResult[]>([]);
+  const [searchSource, setSearchSource] = useState<"api" | "mock">("mock");
+  const [hasSearched, setHasSearched] = useState(false);
+  const [movingSlot, setMovingSlot] = useState<number | null>(null);
   const [siteChatOpen, setSiteChatOpen] = useState(false);
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [siteMessages, setSiteMessages] = useState<SiteMessage[]>([]);
@@ -199,11 +301,16 @@ export function WatchStation({ email }: WatchStationProps) {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const slotRefs = useRef<Array<HTMLElement | null>>([]);
   const iframeRefs = useRef<Array<HTMLIFrameElement | null>>([]);
+  const suspendedIframeRefs = useRef<Record<string, HTMLIFrameElement | null>>({});
+  const suspendedWindowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const suspendedPopoutRefs = useRef<Record<string, Window | null>>({});
+  const suspendedPopoutCheckRefs = useRef<Record<string, ReturnType<typeof setInterval> | null>>({});
   const previousActiveVideosRef = useRef(0);
   const autoLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mobileNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeVideosRef = useRef(0);
   const watchStateHydratedRef = useRef(false);
+  const layoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
   const dragStateRef = useRef<{
     offsetX: number;
     offsetY: number;
@@ -407,8 +514,17 @@ export function WatchStation({ email }: WatchStationProps) {
         if (!response.ok) {
           return;
         }
-        const data = (await response.json()) as SiteStats;
-        setSiteStats(data);
+        const data = (await response.json()) as Partial<SiteStats>;
+        setSiteStats({
+          totalUsers: data.totalUsers ?? 0,
+          onlineUsers: data.onlineUsers ?? 0,
+          offlineUsers: data.offlineUsers ?? 0,
+          totalActiveVideos: data.totalActiveVideos ?? 0,
+          profilesWithAvatar: data.profilesWithAvatar ?? 0,
+          totalWatchSeconds: Math.max(0, Math.floor(data.totalWatchSeconds ?? 0)),
+          topWatcherName: data.topWatcherName ?? "-",
+          topWatcherSeconds: Math.max(0, Math.floor(data.topWatcherSeconds ?? 0))
+        });
       } catch {
         // ignore polling errors
       }
@@ -420,10 +536,10 @@ export function WatchStation({ email }: WatchStationProps) {
   }, []);
 
   useEffect(() => {
-    const activeVideos = slots.filter(Boolean).length;
+    const activeVideos = slots.filter(Boolean).length + suspendedWindows.length;
     activeVideosRef.current = activeVideos;
     void sendPresenceUpdate(activeVideos);
-  }, [slots, sendPresenceUpdate]);
+  }, [slots, suspendedWindows, sendPresenceUpdate]);
 
   useEffect(() => {
     if (!isMobileViewport || !layout) {
@@ -561,6 +677,22 @@ export function WatchStation({ email }: WatchStationProps) {
   }, [slots, slotMuted, slotVolume]);
 
   useEffect(() => {
+    suspendedWindows.forEach((windowItem) => {
+      const iframe = suspendedIframeRefs.current[windowItem.id];
+      if (!iframe?.contentWindow) {
+        return;
+      }
+      const isMuted = slotMuted[windowItem.slot] ?? true;
+      const volume = Math.max(0, Math.min(100, slotVolume[windowItem.slot] ?? 100));
+      iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "setVolume", args: [volume] }), "*");
+      iframe.contentWindow.postMessage(
+        JSON.stringify({ event: "command", func: isMuted ? "mute" : "unMute", args: [] }),
+        "*"
+      );
+    });
+  }, [suspendedWindows, slotMuted, slotVolume]);
+
+  useEffect(() => {
     if (!siteChatOpen) {
       return;
     }
@@ -649,8 +781,40 @@ export function WatchStation({ email }: WatchStationProps) {
     [sendPlayerCommand, slotMuted, slotVolume]
   );
 
+  const sendSuspendedPlayerCommand = useCallback(
+    (windowId: string, func: string, args: Array<string | number | boolean> = []) => {
+      const iframe = suspendedIframeRefs.current[windowId];
+      if (!iframe?.contentWindow) {
+        return;
+      }
+      iframe.contentWindow.postMessage(
+        JSON.stringify({
+          event: "command",
+          func,
+          args
+        }),
+        "*"
+      );
+    },
+    []
+  );
+
+  const syncSuspendedPlayerState = useCallback(
+    (windowItem: SuspendedWindowState) => {
+      const isMuted = slotMuted[windowItem.slot] ?? true;
+      const volume = Math.max(0, Math.min(100, slotVolume[windowItem.slot] ?? 100));
+      sendSuspendedPlayerCommand(windowItem.id, "setVolume", [volume]);
+      sendSuspendedPlayerCommand(windowItem.id, isMuted ? "mute" : "unMute");
+    },
+    [sendSuspendedPlayerCommand, slotMuted, slotVolume]
+  );
+
   function onPlayerReady(slotIndex: number) {
     syncPlayerState(slotIndex);
+  }
+
+  function onSuspendedPlayerReady(windowItem: SuspendedWindowState) {
+    syncSuspendedPlayerState(windowItem);
   }
 
   function toggleSlotMute(slotIndex: number) {
@@ -673,21 +837,18 @@ export function WatchStation({ email }: WatchStationProps) {
     setSlotAudioEffectEnabled((prev) => ({ ...prev, [slotIndex]: !(prev[slotIndex] ?? true) }));
   }
 
-  function applyLinkToSlot(event: FormEvent, slotIndex: number) {
-    event.preventDefault();
-    if (isMobileViewport && !slots[slotIndex] && slots.filter(Boolean).length >= MOBILE_MAX_VIDEOS) {
-      setErrorBySlot((prev) => ({ ...prev, [slotIndex]: `No mobile, limite maximo de ${MOBILE_MAX_VIDEOS} videos.` }));
+  function addVideoToSlot(slotIndex: number, videoId: string) {
+    if (!videoId) {
       return;
     }
-    const id = extractYouTubeVideoId(slotInputs[slotIndex] ?? "");
-    if (!id) {
-      setErrorBySlot((prev) => ({ ...prev, [slotIndex]: "Link invalido." }));
+    if (isMobileViewport && !slots[slotIndex] && slots.filter(Boolean).length >= MOBILE_MAX_VIDEOS) {
+      setErrorBySlot((prev) => ({ ...prev, [slotIndex]: `No mobile, limite maximo de ${MOBILE_MAX_VIDEOS} videos.` }));
       return;
     }
     setErrorBySlot((prev) => ({ ...prev, [slotIndex]: null }));
     setSlots((prev) => {
       const next = [...prev];
-      next[slotIndex] = id;
+      next[slotIndex] = videoId;
       return next;
     });
     const activeVideosAfterAdd = slots[slotIndex] ? slots.filter(Boolean).length : slots.filter(Boolean).length + 1;
@@ -703,6 +864,34 @@ export function WatchStation({ email }: WatchStationProps) {
       next[slotIndex] = "";
       return next;
     });
+  }
+
+  function findBestSlotForInsert() {
+    if (
+      selectedSlot !== null &&
+      selectedSlot < renderedSlotCount &&
+      !renderedSlots[selectedSlot]
+    ) {
+      return selectedSlot;
+    }
+    const emptyIndex = renderedSlots.findIndex((videoId) => !videoId);
+    if (emptyIndex >= 0) {
+      return emptyIndex;
+    }
+    if (selectedSlot !== null && selectedSlot < renderedSlotCount) {
+      return selectedSlot;
+    }
+    return 0;
+  }
+
+  function applyLinkToSlot(event: FormEvent, slotIndex: number) {
+    event.preventDefault();
+    const id = extractYouTubeVideoId(slotInputs[slotIndex] ?? "");
+    if (!id) {
+      setErrorBySlot((prev) => ({ ...prev, [slotIndex]: "Link invalido." }));
+      return;
+    }
+    addVideoToSlot(slotIndex, id);
   }
 
   function removeVideo(slotIndex: number) {
@@ -809,7 +998,6 @@ export function WatchStation({ email }: WatchStationProps) {
         setSelectedSlot(null);
         setErrorBySlot({});
         setChatWindows([]);
-        setSuspendedWindows([]);
         setExpandedSlot(null);
         setVolumePanelSlot(null);
         setSlotMuted({});
@@ -825,7 +1013,6 @@ export function WatchStation({ email }: WatchStationProps) {
       setSlots(nextSlots);
       setSlotInputs(Array.from({ length: cappedMaxSlots }, () => ""));
       setErrorBySlot({});
-      setSuspendedWindows([]);
       setExpandedSlot(null);
       setVolumePanelSlot(null);
       setSlotMuted(
@@ -867,7 +1054,7 @@ export function WatchStation({ email }: WatchStationProps) {
   );
 
   useEffect(() => {
-    const activeVideos = slots.filter(Boolean).length;
+    const activeVideos = slots.filter(Boolean).length + suspendedWindows.length;
     const previousActiveVideos = previousActiveVideosRef.current;
     previousActiveVideosRef.current = activeVideos;
 
@@ -879,6 +1066,10 @@ export function WatchStation({ email }: WatchStationProps) {
     setAutoLayoutInfo(null);
 
     if (!layoutId || activeVideos < 1) {
+      return;
+    }
+
+    if (suspendedWindows.length > 0) {
       return;
     }
 
@@ -908,7 +1099,7 @@ export function WatchStation({ email }: WatchStationProps) {
         autoLayoutTimerRef.current = null;
       }
     };
-  }, [slots, layoutId, applyLayoutChange]);
+  }, [slots, suspendedWindows, layoutId, applyLayoutChange]);
 
   function onLayoutSelect(nextLayout: LayoutPreset) {
     setLayoutsMenuOpen(false);
@@ -966,9 +1157,213 @@ export function WatchStation({ email }: WatchStationProps) {
     setSlotsToClose((prev) => (prev.includes(slotIndex) ? prev.filter((item) => item !== slotIndex) : [...prev, slotIndex]));
   }
 
+  function swapSlots(sourceIndex: number, targetIndex: number) {
+    setSlots((prev) => {
+      const next = [...prev];
+      const temp = next[sourceIndex] ?? null;
+      next[sourceIndex] = next[targetIndex] ?? null;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSlotInputs((prev) => {
+      const next = [...prev];
+      const temp = next[sourceIndex] ?? "";
+      next[sourceIndex] = next[targetIndex] ?? "";
+      next[targetIndex] = temp;
+      return next;
+    });
+    setErrorBySlot((prev) => {
+      const next = { ...prev };
+      const temp = next[sourceIndex] ?? null;
+      next[sourceIndex] = next[targetIndex] ?? null;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSlotMuted((prev) => {
+      const next = { ...prev };
+      const temp = next[sourceIndex] ?? true;
+      next[sourceIndex] = next[targetIndex] ?? true;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSlotVolume((prev) => {
+      const next = { ...prev };
+      const temp = next[sourceIndex] ?? 100;
+      next[sourceIndex] = next[targetIndex] ?? 100;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSlotHidden((prev) => {
+      const next = { ...prev };
+      const temp = next[sourceIndex] ?? false;
+      next[sourceIndex] = next[targetIndex] ?? false;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSlotAudioEffectEnabled((prev) => {
+      const next = { ...prev };
+      const temp = next[sourceIndex] ?? true;
+      next[sourceIndex] = next[targetIndex] ?? true;
+      next[targetIndex] = temp;
+      return next;
+    });
+    setSelectedSlot(targetIndex);
+    setMovingSlot(null);
+  }
+
   function toggleSlotSelection(index: number) {
+    if (movingSlot !== null) {
+      if (movingSlot === index) {
+        setMovingSlot(null);
+        return;
+      }
+      swapSlots(movingSlot, index);
+      return;
+    }
     setSelectedSlot((current) => (current === index ? null : index));
   }
+
+  async function submitSearch(event: FormEvent) {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchError("Digite um termo para buscar.");
+      setSearchVideos([]);
+      setSearchChannels([]);
+      setHasSearched(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError(null);
+    setHasSearched(true);
+    if (layoutId && !layoutSnapshotRef.current) {
+      layoutSnapshotRef.current = {
+        layoutId,
+        slots: [...slots],
+        slotInputs: [...slotInputs],
+        selectedSlot,
+        slotMuted: { ...slotMuted },
+        slotVolume: { ...slotVolume },
+        slotHidden: { ...slotHidden },
+        slotAudioEffectEnabled: { ...slotAudioEffectEnabled }
+      };
+    }
+    if (layoutId) {
+      setLayoutId(null);
+      setSelectedSlot(null);
+      setExpandedSlot(null);
+      setVolumePanelSlot(null);
+    }
+
+    try {
+      const response = await fetch(`/api/youtube/search?query=${encodeURIComponent(query)}`);
+      const data = (await response.json()) as {
+        source: "api" | "mock";
+        videos: SearchVideoResult[];
+        channels: SearchChannelResult[];
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Falha ao buscar no YouTube.");
+      }
+      setSearchSource(data.source);
+      setSearchVideos(data.videos ?? []);
+      setSearchChannels(data.channels ?? []);
+      if ((data.videos?.length ?? 0) === 0 && (data.channels?.length ?? 0) === 0) {
+        setSearchError("Nada encontrado para este termo.");
+      }
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao buscar no YouTube.");
+      setSearchVideos([]);
+      setSearchChannels([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  function addSearchVideo(videoId: string) {
+    if (!layoutId && layoutSnapshotRef.current?.layoutId) {
+      const snapshot = layoutSnapshotRef.current;
+      const nextSlots = [...snapshot.slots];
+      const firstEmpty = nextSlots.findIndex((value) => !value);
+      const fromSelected =
+        snapshot.selectedSlot !== null &&
+        snapshot.selectedSlot < nextSlots.length &&
+        !nextSlots[snapshot.selectedSlot]
+          ? snapshot.selectedSlot
+          : null;
+      const targetSlot = firstEmpty >= 0 ? firstEmpty : (fromSelected ?? 0);
+      nextSlots[targetSlot] = videoId;
+
+      setLayoutId(snapshot.layoutId);
+      setSlots(nextSlots);
+      setSlotInputs(Array.from({ length: nextSlots.length }, () => ""));
+      setSelectedSlot(targetSlot);
+      setErrorBySlot({});
+      setSlotMuted({ ...snapshot.slotMuted, [targetSlot]: true });
+      setSlotVolume({ ...snapshot.slotVolume, [targetSlot]: 100 });
+      setSlotHidden({ ...snapshot.slotHidden, [targetSlot]: false });
+      setSlotAudioEffectEnabled({ ...snapshot.slotAudioEffectEnabled, [targetSlot]: true });
+      setSuspendedWindows((prev) => prev.filter((item) => item.slot !== targetSlot));
+      const activeVideos = nextSlots.filter(Boolean).length;
+      activeVideosRef.current = activeVideos;
+      void sendPresenceUpdate(activeVideos);
+      setHasSearched(false);
+      setSearchError(null);
+      layoutSnapshotRef.current = null;
+      return;
+    }
+
+    if (!layoutId) {
+      const defaultLayout = LAYOUTS[1] ?? LAYOUTS[0];
+      const nextSlots = Array.from({ length: defaultLayout.maxSlots }, (_, index) => (index === 0 ? videoId : null));
+      setLayoutId(defaultLayout.id);
+      setSlots(nextSlots);
+      setSlotInputs(Array.from({ length: defaultLayout.maxSlots }, () => ""));
+      setSelectedSlot(0);
+      setErrorBySlot({});
+      setSlotMuted({ 0: true });
+      setSlotVolume({ 0: 100 });
+      setSlotHidden({ 0: false });
+      setSlotAudioEffectEnabled({ 0: true });
+      setVolumePanelSlot(null);
+      setExpandedSlot(null);
+      activeVideosRef.current = 1;
+      void sendPresenceUpdate(1);
+      setHasSearched(false);
+      setSearchError(null);
+      return;
+    }
+
+    const targetSlot = findBestSlotForInsert();
+    addVideoToSlot(targetSlot, videoId);
+    setSelectedSlot(targetSlot);
+    setHasSearched(false);
+    setSearchError(null);
+  }
+
+  function clearSearch() {
+    setSearchQuery("");
+    setSearchError(null);
+    setSearchVideos([]);
+    setSearchChannels([]);
+    setHasSearched(false);
+    if (layoutSnapshotRef.current) {
+      const snapshot = layoutSnapshotRef.current;
+      setLayoutId(snapshot.layoutId);
+      setSlots(snapshot.slots);
+      setSlotInputs(snapshot.slotInputs);
+      setSelectedSlot(snapshot.selectedSlot);
+      setSlotMuted(snapshot.slotMuted);
+      setSlotVolume(snapshot.slotVolume);
+      setSlotHidden(snapshot.slotHidden);
+      setSlotAudioEffectEnabled(snapshot.slotAudioEffectEnabled);
+      layoutSnapshotRef.current = null;
+    }
+  }
+
+  const showSearchPanel = hasSearched;
 
   function clampWithinScreenArea(x: number, y: number, width = CHAT_WIDTH, height = CHAT_HEIGHT) {
     const area = screenAreaRef.current;
@@ -1021,6 +1416,7 @@ export function WatchStation({ email }: WatchStationProps) {
           id: `suspended-${slotIndex}`,
           slot: slotIndex,
           videoId,
+          pinMode: "free",
           x: clamped.x,
           y: clamped.y,
           z: nextZ
@@ -1048,7 +1444,8 @@ export function WatchStation({ email }: WatchStationProps) {
       return;
     }
 
-    const targetSlot = slots[slotIndex] ? slots.findIndex((videoId) => !videoId) : slotIndex;
+    const preferredSlot = slotIndex >= 0 && slotIndex < slots.length ? slotIndex : 0;
+    const targetSlot = slots[preferredSlot] ? slots.findIndex((videoId) => !videoId) : preferredSlot;
     if (targetSlot === -1) {
       setErrorBySlot((prev) => ({ ...prev, [slotIndex]: "Sem espaco para retornar video suspenso." }));
       return;
@@ -1063,7 +1460,174 @@ export function WatchStation({ email }: WatchStationProps) {
     setSlotVolume((prev) => ({ ...prev, [targetSlot]: 100 }));
     setSlotHidden((prev) => ({ ...prev, [targetSlot]: false }));
     setErrorBySlot((prev) => ({ ...prev, [slotIndex]: null, [targetSlot]: null }));
+    if (suspended?.id) {
+      closeSuspendedExternal(suspended.id);
+    }
     setSuspendedWindows((prev) => prev.filter((item) => item.slot !== slotIndex));
+  }
+
+  function closeSuspendedExternal(windowId: string) {
+    const popup = suspendedPopoutRefs.current[windowId];
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    suspendedPopoutRefs.current[windowId] = null;
+
+    const checkTimer = suspendedPopoutCheckRefs.current[windowId];
+    if (checkTimer) {
+      clearInterval(checkTimer);
+      suspendedPopoutCheckRefs.current[windowId] = null;
+    }
+  }
+
+  function openSuspendedPopout(windowItem: SuspendedWindowState): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const existing = suspendedPopoutRefs.current[windowItem.id];
+    if (existing && !existing.closed) {
+      existing.focus();
+      return true;
+    }
+
+    const width = 480;
+    const height = 292;
+    const left = Math.max(0, Math.floor((window.screen.availWidth - width) / 2));
+    const top = Math.max(0, Math.floor((window.screen.availHeight - height) / 2));
+    const popup = window.open(
+      "",
+      `livestation-suspended-${windowItem.id}`,
+      `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=no`
+    );
+    if (!popup) {
+      return false;
+    }
+
+    const muted = slotMuted[windowItem.slot] ?? true;
+    const volume = slotVolume[windowItem.slot] ?? 100;
+    const autoplayMuted = muted || volume <= 0 ? 1 : 0;
+    const src = `https://www.youtube.com/embed/${windowItem.videoId}?autoplay=1&mute=${autoplayMuted}&playsinline=1&rel=0`;
+    const assetBase = window.location.origin;
+
+    popup.document.open();
+    popup.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LiveStation - Tela suspensa</title>
+  <style>
+    html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden;font-family:Segoe UI,sans-serif}
+    .bar{height:38px;display:flex;align-items:center;gap:6px;padding:0 8px;background:#0f1421;border-bottom:1px solid rgba(255,255,255,.12)}
+    .bar strong{font-size:12px;color:#a6b2cc;margin-right:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .badge{height:20px;padding:0 8px 0 7px;border-radius:999px;font-size:11px;line-height:1;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.16);color:#ffc1c1}
+    .badge::before{content:"";width:6px;height:6px;border-radius:999px;background:#ef4444;box-shadow:0 0 7px rgba(239,68,68,.95)}
+    .badge.active{border:1px solid rgba(34,197,94,.45);background:rgba(34,197,94,.16);color:#baf7cf}
+    .badge.active::before{background:#22c55e;box-shadow:0 0 7px rgba(34,197,94,.95)}
+    .iconBtn{width:28px;height:28px;display:inline-grid;place-items:center;padding:0;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);border-radius:8px;cursor:pointer}
+    .iconBtn:hover{background:rgba(255,193,69,.2);border-color:rgba(255,193,69,.55)}
+    .iconBtn img{width:14px;height:14px;filter:brightness(0) invert(1);opacity:.92}
+    .iconBtn img.on{filter:brightness(0) saturate(100%) invert(62%) sepia(72%) saturate(470%) hue-rotate(88deg) brightness(98%) contrast(88%);opacity:1}
+    .iconBtn img.muted{filter:brightness(0) saturate(100%) invert(42%) sepia(97%) saturate(1375%) hue-rotate(333deg) brightness(101%) contrast(98%);opacity:1}
+    .stage{height:calc(100vh - 36px)}
+    iframe{border:0;width:100%;height:100%;display:block}
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <strong>Slot ${windowItem.slot + 1}</strong>
+    <button id="audioBadge" class="badge" title="Audio">Audio mutado</button>
+    <button id="volDown" class="iconBtn" title="Volume -"><img src="${assetBase}/sound_min_light.svg" alt=""></button>
+    <button id="muteBtn" class="iconBtn" title="Mutar/Desmutar"><img id="muteIcon" src="${assetBase}/sound_mute_light.svg" alt=""></button>
+    <button id="volUp" class="iconBtn" title="Volume +"><img src="${assetBase}/sound_max_light.svg" alt=""></button>
+    <button id="fullBtn" class="iconBtn" title="Tela cheia"><img src="${assetBase}/Full_Screen_Corner_Light.svg" alt=""></button>
+    <button id="closeBtn" class="iconBtn" title="Voltar ao slot"><img src="${assetBase}/External.svg" alt=""></button>
+  </div>
+  <div class="stage">
+    <iframe id="player" src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+  </div>
+  <script>
+    const frame = document.getElementById("player");
+    const badge = document.getElementById("audioBadge");
+    const muteIcon = document.getElementById("muteIcon");
+    let muted = ${autoplayMuted === 1 ? "true" : "false"};
+    let volume = ${Math.max(0, Math.min(100, volume))};
+    function cmd(func, args = []) {
+      if (!frame || !frame.contentWindow) return;
+      frame.contentWindow.postMessage(JSON.stringify({ event: "command", func, args }), "*");
+    }
+    function refreshUi() {
+      const isMuted = muted || volume <= 0;
+      if (badge) {
+        badge.classList.toggle("active", !isMuted);
+        badge.textContent = isMuted ? "Audio mutado" : "Audio ativo";
+      }
+      if (muteIcon) {
+        muteIcon.classList.toggle("muted", isMuted);
+        muteIcon.classList.toggle("on", !isMuted);
+        muteIcon.setAttribute("src", isMuted ? "${assetBase}/sound_mute_light.svg" : "${assetBase}/sound_max_light.svg");
+      }
+    }
+    function sync() {
+      cmd("setVolume", [volume]);
+      cmd(muted ? "mute" : "unMute");
+      refreshUi();
+    }
+    document.getElementById("muteBtn")?.addEventListener("click", () => {
+      muted = !muted;
+      sync();
+    });
+    document.getElementById("audioBadge")?.addEventListener("click", () => {
+      muted = !muted;
+      sync();
+    });
+    document.getElementById("volDown")?.addEventListener("click", () => {
+      volume = Math.max(0, volume - 10);
+      if (volume === 0) muted = true;
+      sync();
+    });
+    document.getElementById("volUp")?.addEventListener("click", () => {
+      volume = Math.min(100, volume + 10);
+      if (volume > 0) muted = false;
+      sync();
+    });
+    document.getElementById("fullBtn")?.addEventListener("click", () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        document.documentElement.requestFullscreen();
+      }
+    });
+    document.getElementById("closeBtn")?.addEventListener("click", () => window.close());
+    frame?.addEventListener("load", () => setTimeout(sync, 220));
+    refreshUi();
+  </script>
+</body>
+</html>`);
+    popup.document.close();
+    suspendedPopoutRefs.current[windowItem.id] = popup;
+
+    if (suspendedPopoutCheckRefs.current[windowItem.id]) {
+      clearInterval(suspendedPopoutCheckRefs.current[windowItem.id] as ReturnType<typeof setInterval>);
+    }
+    suspendedPopoutCheckRefs.current[windowItem.id] = setInterval(() => {
+      const current = suspendedPopoutRefs.current[windowItem.id];
+      if (current && !current.closed) {
+        return;
+      }
+      const checkTimer = suspendedPopoutCheckRefs.current[windowItem.id];
+      if (checkTimer) {
+        clearInterval(checkTimer);
+        suspendedPopoutCheckRefs.current[windowItem.id] = null;
+      }
+      suspendedPopoutRefs.current[windowItem.id] = null;
+      setSuspendedWindows((prev) =>
+        prev.map((item) => (item.id === windowItem.id && item.pinMode === "global" ? { ...item, pinMode: "free" } : item))
+      );
+    }, 800);
+
+    return true;
   }
 
   function openChatAtSlot(slotIndex: number) {
@@ -1117,6 +1681,9 @@ export function WatchStation({ email }: WatchStationProps) {
     if (!targetWindow) {
       return;
     }
+    if (targetWindow.pinMode !== "free") {
+      return;
+    }
 
     const nextZ = zCounter + 1;
     setZCounter(nextZ);
@@ -1130,6 +1697,82 @@ export function WatchStation({ email }: WatchStationProps) {
       offsetY: event.clientY - targetWindow.y
     };
   }
+
+  function toggleSuspendedFullscreen(windowId: string) {
+    const target = suspendedWindowRefs.current[windowId];
+    if (!target) {
+      return;
+    }
+    if (document.fullscreenElement === target) {
+      void document.exitFullscreen();
+      return;
+    }
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().then(() => {
+        void target.requestFullscreen();
+      });
+      return;
+    }
+    void target.requestFullscreen();
+  }
+
+  function toggleSuspendedPin(windowId: string) {
+    const target = suspendedWindows.find((item) => item.id === windowId);
+    if (!target) {
+      return;
+    }
+
+    if (target.pinMode === "free") {
+      setSuspendedWindows((prev) => prev.map((item) => (item.id === windowId ? { ...item, pinMode: "locked" } : item)));
+      return;
+    }
+
+    if (target.pinMode === "locked") {
+      const opened = openSuspendedPopout(target);
+      if (!opened) {
+        setErrorBySlot((prev) => ({
+          ...prev,
+          [target.slot]: "Nao foi possivel abrir popup. Permita popup para usar pin global."
+        }));
+        return;
+      }
+      setSuspendedWindows((prev) => prev.map((item) => (item.id === windowId ? { ...item, pinMode: "global" } : item)));
+      return;
+    }
+
+    closeSuspendedExternal(windowId);
+    setSuspendedWindows((prev) => prev.map((item) => (item.id === windowId ? { ...item, pinMode: "free" } : item)));
+  }
+
+  useEffect(() => {
+    const validIds = new Set(suspendedWindows.map((item) => item.id));
+    for (const [id, popup] of Object.entries(suspendedPopoutRefs.current)) {
+      if (validIds.has(id)) {
+        continue;
+      }
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+      closeSuspendedExternal(id);
+    }
+  }, [suspendedWindows]);
+
+  useEffect(() => {
+    const popoutRefs = suspendedPopoutRefs.current;
+    const popoutCheckRefs = suspendedPopoutCheckRefs.current;
+    return () => {
+      for (const popup of Object.values(popoutRefs)) {
+        if (popup && !popup.closed) {
+          popup.close();
+        }
+      }
+      for (const checkTimer of Object.values(popoutCheckRefs)) {
+        if (checkTimer) {
+          clearInterval(checkTimer);
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     function onMouseMove(event: MouseEvent) {
@@ -1251,8 +1894,14 @@ export function WatchStation({ email }: WatchStationProps) {
     }
   }
 
-  function openProfilePopover() {
+  function openProfilePopover(event?: ReactMouseEvent<HTMLButtonElement>) {
+    event?.stopPropagation();
     setProfileError(null);
+    if (profileOpen) {
+      setProfileOpen(false);
+      setPasswordPopupOpen(false);
+      return;
+    }
     const trigger = profileTriggerRef.current;
     if (!trigger) {
       setProfileOpen(true);
@@ -1275,6 +1924,48 @@ export function WatchStation({ email }: WatchStationProps) {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
+  }
+
+  async function onChangePasswordSubmit(event: FormEvent) {
+    event.preventDefault();
+    setPasswordStatus(null);
+
+    const current = passwordCurrent.trim();
+    const next = passwordNext.trim();
+    const confirm = passwordConfirm.trim();
+    if (!current || !next || !confirm) {
+      setPasswordStatus("Preencha os tres campos de senha.");
+      return;
+    }
+    if (next !== confirm) {
+      setPasswordStatus("A confirmacao da nova senha nao confere.");
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next })
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setPasswordStatus(data.error ?? "Falha ao alterar senha.");
+        return;
+      }
+      setPasswordCurrent("");
+      setPasswordNext("");
+      setPasswordConfirm("");
+      setPasswordStatus("Senha alterada com sucesso.");
+      setTimeout(() => {
+        setPasswordPopupOpen(false);
+      }, 600);
+    } catch {
+      setPasswordStatus("Falha ao alterar senha.");
+    } finally {
+      setPasswordLoading(false);
+    }
   }
 
   async function sendSiteMessage(event: FormEvent) {
@@ -1305,6 +1996,209 @@ export function WatchStation({ email }: WatchStationProps) {
     }
   }
 
+  async function loadUpdates() {
+    setUpdatesLoading(true);
+    setUpdatesError(null);
+    try {
+      const response = await fetch("/api/site/updates");
+      const data = (await response.json()) as { versions?: ChangelogEntry[]; error?: string };
+      if (!response.ok) {
+        setUpdatesError(data.error ?? "Falha ao carregar atualizacoes.");
+        return;
+      }
+      setUpdatesList(data.versions ?? []);
+    } catch {
+      setUpdatesError("Falha ao carregar atualizacoes.");
+    } finally {
+      setUpdatesLoading(false);
+    }
+  }
+
+  async function loadBugReports() {
+    setBugLoading(true);
+    setBugError(null);
+    try {
+      const response = await fetch("/api/site/bugs");
+      const data = (await response.json()) as {
+        reports?: BugReportItem[];
+        isAdmin?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        setBugError(data.error ?? "Falha ao carregar relatos.");
+        return;
+      }
+      setBugReports(data.reports ?? []);
+      setBugIsAdmin(Boolean(data.isAdmin));
+    } catch {
+      setBugError("Falha ao carregar relatos.");
+    } finally {
+      setBugLoading(false);
+    }
+  }
+
+  async function onBugImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setBugImageLoading(true);
+    setBugError(null);
+    try {
+      const dataUrl = await fileToOptimizedAvatarDataUrl(file);
+      setBugImageDataUrl(dataUrl);
+    } catch {
+      setBugError("Falha ao processar imagem do bug.");
+    } finally {
+      setBugImageLoading(false);
+      event.target.value = "";
+    }
+  }
+
+  async function onEditBugImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setBugImageLoading(true);
+    setBugError(null);
+    try {
+      const dataUrl = await fileToOptimizedAvatarDataUrl(file);
+      setEditingBugImageDataUrl(dataUrl);
+    } catch {
+      setBugError("Falha ao processar imagem do bug.");
+    } finally {
+      setBugImageLoading(false);
+      event.target.value = "";
+    }
+  }
+
+  async function submitBugReport(event: FormEvent) {
+    event.preventDefault();
+    const text = bugText.trim();
+    if (!text) {
+      setBugError("Descreva o problema.");
+      return;
+    }
+    setBugSubmitting(true);
+    setBugError(null);
+    try {
+      const response = await fetch("/api/site/bugs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bugType,
+          text,
+          imageDataUrl: bugImageDataUrl
+        })
+      });
+      const data = (await response.json()) as { report?: BugReportItem; error?: string };
+      if (!response.ok || !data.report) {
+        setBugError(data.error ?? "Falha ao publicar relato.");
+        return;
+      }
+      setBugReports((prev) => [data.report as BugReportItem, ...prev]);
+      setBugText("");
+      setBugImageDataUrl(null);
+      setBugType("ui");
+    } catch {
+      setBugError("Falha ao publicar relato.");
+    } finally {
+      setBugSubmitting(false);
+    }
+  }
+
+  function startEditBug(report: BugReportItem) {
+    setEditingBugId(report.id);
+    setEditingBugText(report.text);
+    setEditingBugType(report.bugType);
+    setEditingBugImageDataUrl(report.imageDataUrl);
+    setReplyingBugId(null);
+  }
+
+  async function saveEditBug(reportId: string) {
+    const text = editingBugText.trim();
+    if (!text) {
+      setBugError("Descricao do bug nao pode ficar vazia.");
+      return;
+    }
+    setBugSubmitting(true);
+    setBugError(null);
+    try {
+      const response = await fetch(`/api/site/bugs/${encodeURIComponent(reportId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bugType: editingBugType,
+          text,
+          imageDataUrl: editingBugImageDataUrl
+        })
+      });
+      const data = (await response.json()) as { report?: BugReportItem; error?: string };
+      if (!response.ok || !data.report) {
+        setBugError(data.error ?? "Falha ao atualizar relato.");
+        return;
+      }
+      setBugReports((prev) => prev.map((item) => (item.id === reportId ? data.report! : item)));
+      setEditingBugId(null);
+      setEditingBugText("");
+      setEditingBugImageDataUrl(null);
+      setEditingBugType("ui");
+    } catch {
+      setBugError("Falha ao atualizar relato.");
+    } finally {
+      setBugSubmitting(false);
+    }
+  }
+
+  async function deleteBug(reportId: string) {
+    setBugSubmitting(true);
+    setBugError(null);
+    try {
+      const response = await fetch(`/api/site/bugs/${encodeURIComponent(reportId)}`, { method: "DELETE" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setBugError(data.error ?? "Falha ao apagar relato.");
+        return;
+      }
+      setBugReports((prev) => prev.filter((item) => item.id !== reportId));
+      if (editingBugId === reportId) {
+        setEditingBugId(null);
+      }
+      if (replyingBugId === reportId) {
+        setReplyingBugId(null);
+      }
+    } catch {
+      setBugError("Falha ao apagar relato.");
+    } finally {
+      setBugSubmitting(false);
+    }
+  }
+
+  async function saveAdminReply(reportId: string) {
+    setBugSubmitting(true);
+    setBugError(null);
+    try {
+      const response = await fetch(`/api/site/bugs/${encodeURIComponent(reportId)}/reply`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reply: replyText.trim() || null })
+      });
+      const data = (await response.json()) as { report?: BugReportItem; error?: string };
+      if (!response.ok || !data.report) {
+        setBugError(data.error ?? "Falha ao responder relato.");
+        return;
+      }
+      setBugReports((prev) => prev.map((item) => (item.id === reportId ? data.report! : item)));
+      setReplyingBugId(null);
+      setReplyText("");
+    } catch {
+      setBugError("Falha ao responder relato.");
+    } finally {
+      setBugSubmitting(false);
+    }
+  }
+
   return (
     <main className="watchPage">
       <header className="watchHeader">
@@ -1312,8 +2206,39 @@ export function WatchStation({ email }: WatchStationProps) {
           <h1>LiveStation</h1>
           <span className="headerBadge headerBadgeInline">RIZZER</span>
         </div>
+        <div className="headerCenterSearch">
+          <form className="headerSearchForm" onSubmit={submitSearch}>
+            <div className="headerSearchInputWrap">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Buscar videos e canais do YouTube"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="headerSearchClear"
+                  onClick={clearSearch}
+                  aria-label="Limpar busca"
+                  title="Limpar busca"
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+            <button type="submit" disabled={searchLoading}>
+              {searchLoading ? "..." : "Buscar"}
+            </button>
+          </form>
+        </div>
         <div className="headerActions">
-          <button type="button" className="headerProfileButton" onClick={openProfilePopover} ref={profileTriggerRef}>
+          <button
+            type="button"
+            className={`headerProfileButton ${profileOpen ? "active" : ""}`}
+            onClick={(event) => openProfilePopover(event)}
+            ref={profileTriggerRef}
+          >
             <span className="headerAvatar headerAvatarLarge">
               {profileAvatar ? (
                 <Image src={profileAvatar} alt="Foto do usuario" fill sizes="56px" className="headerAvatarImg" />
@@ -1390,6 +2315,14 @@ export function WatchStation({ email }: WatchStationProps) {
                   <span>Perfis com foto</span>
                   <strong>{siteStats.profilesWithAvatar}</strong>
                 </p>
+                <p>
+                  <span>Tempo total assistido</span>
+                  <strong>{formatWatchDuration(siteStats.totalWatchSeconds)}</strong>
+                </p>
+                <p>
+                  <span>Top espectador</span>
+                  <strong>{siteStats.topWatcherName}</strong>
+                </p>
               </div>
               <button type="button" className="openSiteChatButton" onClick={() => setSiteChatOpen((prev) => !prev)}>
                 {siteChatOpen ? "Fechar o chat" : "Chat LiveStation"}
@@ -1438,6 +2371,24 @@ export function WatchStation({ email }: WatchStationProps) {
                     }}
                   >
                     <div className="slotHeader">
+                      <button
+                        className="moveSlotInlineButton"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (movingSlot !== null && movingSlot !== index) {
+                            swapSlots(movingSlot, index);
+                            return;
+                          }
+                          setMovingSlot((current) => (current === index ? null : index));
+                        }}
+                        aria-label={movingSlot === index ? "Cancelar mover slot" : "Mover slot"}
+                        title={movingSlot === index ? "Clique no destino para trocar" : "Mover slot"}
+                      >
+                        <span className={`moveIconGlyph ${movingSlot === index ? "isActive" : ""}`} aria-hidden="true">
+                          ⋮⋮
+                        </span>
+                      </button>
                       <span>Slot {index + 1}</span>
                       {videoId ? (
                         <div className="slotActions slotActionsTight">
@@ -1668,15 +2619,103 @@ export function WatchStation({ email }: WatchStationProps) {
               })}
             </div>
           ) : (
-            <div className="welcomeScreen">
-              <h2>Bem-vindo ao LiveStation</h2>
-              <span className="welcomeLogoWrap" aria-hidden="true">
-                <Image src={logoSrc} alt="" className="welcomeLogo" fill sizes="220px" />
-              </span>
-            </div>
+            <>
+              {showSearchPanel ? (
+                <div className="searchCenterPanel">
+                  <div className="searchCenterHeader">
+                    <h2>Resultados da busca</h2>
+                    <div>
+                      <span>Fonte: {searchSource === "api" ? "YouTube" : "mock"}</span>
+                      <button type="button" onClick={clearSearch}>
+                        Fechar busca
+                      </button>
+                    </div>
+                  </div>
+                  {searchError ? <p className="statusError">{searchError}</p> : null}
+                  <div className="searchCenterSections">
+                    <section>
+                      <h3>Canais</h3>
+                      {searchChannels.length > 0 ? (
+                        <ul className="searchCardGrid channelGrid">
+                          {searchChannels.map((channel) => (
+                            <li key={channel.id} className="searchMediaCard channelCard">
+                              <div className="searchThumbWrap channelThumbWrap">
+                                {channel.thumbnail ? (
+                                  <Image
+                                    src={channel.thumbnail}
+                                    alt={channel.title}
+                                    width={66}
+                                    height={66}
+                                    className="searchThumb channelThumb"
+                                    unoptimized
+                                  />
+                                ) : (
+                                  <div className="searchThumbFallback">{channel.title.slice(0, 2).toUpperCase()}</div>
+                                )}
+                              </div>
+                              <div className="searchCardBody">
+                                <strong>{channel.title}</strong>
+                                <p>{channel.description || "Canal no YouTube."}</p>
+                                <a href={`https://www.youtube.com/channel/${channel.id}`} target="_blank" rel="noreferrer">
+                                  Abrir canal
+                                </a>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="statusHint">Nenhum canal encontrado.</p>
+                      )}
+                    </section>
+                    <section>
+                      <h3>Vídeos</h3>
+                      {searchVideos.length > 0 ? (
+                        <ul className="searchCardGrid videoGridCards">
+                          {searchVideos.map((video) => (
+                            <li key={video.id} className="searchMediaCard videoCard">
+                              <div className="searchThumbWrap">
+                                {video.thumbnail ? (
+                                  <Image
+                                    src={video.thumbnail}
+                                    alt={video.title}
+                                    fill
+                                    sizes="248px"
+                                    className="searchThumb"
+                                    unoptimized
+                                  />
+                                ) : (
+                                  <div className="searchThumbFallback">YT</div>
+                                )}
+                              </div>
+                              <div className="searchCardBody">
+                                <strong>{video.title}</strong>
+                                <span>{video.channelTitle}</span>
+                                <button type="button" onClick={() => addSearchVideo(video.id)}>
+                                  Adicionar no slot
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="statusHint">Nenhum vídeo encontrado.</p>
+                      )}
+                    </section>
+                  </div>
+                </div>
+              ) : (
+                <div className="welcomeScreen">
+                  <h2>Bem-vindo ao LiveStation</h2>
+                  <span className="welcomeLogoWrap" aria-hidden="true">
+                    <Image src={logoSrc} alt="" className="welcomeLogo" fill sizes="220px" />
+                  </span>
+                </div>
+              )}
+            </>
           )}
 
-          {chatWindows
+          {!showSearchPanel
+            ? chatWindows
             .filter((chat) => Boolean(slots[chat.slot]))
             .map((chat) => (
               <div
@@ -1709,12 +2748,18 @@ export function WatchStation({ email }: WatchStationProps) {
                   referrerPolicy="strict-origin-when-cross-origin"
                 />
               </div>
-            ))}
+            ))
+            : null}
 
-          {suspendedWindows.map((windowItem) => (
+          {suspendedWindows
+            .filter((windowItem) => windowItem.pinMode !== "global")
+            .filter((windowItem) => !showSearchPanel || windowItem.pinMode !== "free")
+            .map((windowItem) => (
             <div
               key={windowItem.id}
-              className="chatFloat suspendedFloat"
+              className={`chatFloat suspendedFloat ${
+                windowItem.pinMode === "locked" ? "isPinned" : windowItem.pinMode === "global" ? "isGlobalPinned" : ""
+              }`}
               role="dialog"
               aria-modal="false"
               aria-label={`Tela suspensa da posicao ${windowItem.slot + 1}`}
@@ -1723,22 +2768,158 @@ export function WatchStation({ email }: WatchStationProps) {
                 top: `${windowItem.y}px`,
                 width: `${SUSPENDED_WIDTH}px`,
                 height: `${SUSPENDED_HEIGHT}px`,
-                zIndex: 20 + windowItem.z
+                zIndex: (windowItem.pinMode !== "free" ? 200 : 20) + windowItem.z
+              }}
+              ref={(element) => {
+                suspendedWindowRefs.current[windowItem.id] = element;
               }}
             >
-              <header className="chatFloatHeader" onMouseDown={(event) => startSuspendedDrag(event, windowItem.id)}>
-                <h3>Slot {windowItem.slot + 1} - Tela suspensa</h3>
-                <button type="button" onClick={() => restoreSuspendedVideo(windowItem.slot)}>
-                  Retornar
-                </button>
+              <header className="chatFloatHeader suspendedFloatHeader">
+                <div
+                  className="suspendedDragHandle"
+                  onMouseDown={(event) => startSuspendedDrag(event, windowItem.id)}
+                  title="Arrastar"
+                >
+                  <span>Slot {windowItem.slot + 1} - Tela suspensa</span>
+                </div>
+                <div className="slotActions slotActionsTight suspendedActions">
+                  {windowItem.videoId ? (
+                    <button
+                      type="button"
+                      className={`audioActiveBadge ${(slotMuted[windowItem.slot] ?? true) || (slotVolume[windowItem.slot] ?? 100) <= 0 ? "muted" : "active"}`}
+                      aria-label={
+                        (slotMuted[windowItem.slot] ?? true) || (slotVolume[windowItem.slot] ?? 100) <= 0
+                          ? "Audio mutado"
+                          : "Audio ativo"
+                      }
+                      title={
+                        slotAudioEffectEnabled[windowItem.slot] ?? true
+                          ? "Clique para desativar o efeito visual"
+                          : "Clique para ativar o efeito visual"
+                      }
+                      onClick={() => toggleSlotAudioEffect(windowItem.slot)}
+                    >
+                      {(slotMuted[windowItem.slot] ?? true) || (slotVolume[windowItem.slot] ?? 100) <= 0
+                        ? "Audio mutado"
+                        : "Audio ativo"}
+                    </button>
+                  ) : null}
+                  <button
+                    className="slotIconButton"
+                    type="button"
+                    onClick={() =>
+                      setSuspendedVolumePanelId((current) => (current === windowItem.id ? null : windowItem.id))
+                    }
+                    aria-label="Controle de volume"
+                    title="Controle de volume"
+                  >
+                    <Image
+                      src={
+                        slotMuted[windowItem.slot] ?? true
+                          ? "/sound_mute_light.svg"
+                          : (slotVolume[windowItem.slot] ?? 100) <= 40
+                            ? "/sound_min_light.svg"
+                            : "/sound_max_light.svg"
+                      }
+                      alt=""
+                      width={ICON_SIZE}
+                      height={ICON_SIZE}
+                      className={`slotAudioIcon ${(slotMuted[windowItem.slot] ?? true) ? "isMuted" : "isOn"}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    className={`slotIconButton ${
+                      windowItem.pinMode === "locked"
+                        ? "isActiveBlue"
+                        : windowItem.pinMode === "global"
+                          ? "isActivePurple"
+                          : ""
+                    }`}
+                    type="button"
+                    onClick={() => {
+                      void toggleSuspendedPin(windowItem.id);
+                    }}
+                    aria-label={
+                      windowItem.pinMode === "free"
+                        ? "Fixar no site"
+                        : windowItem.pinMode === "locked"
+                          ? "Fixar global e continuar entre abas"
+                          : "Voltar ao modo solto"
+                    }
+                    title={
+                      windowItem.pinMode === "free"
+                        ? "Pin azul: fixa no site"
+                        : windowItem.pinMode === "locked"
+                          ? "Pin roxo: fixa global entre abas"
+                          : "Terceiro clique: modo solto"
+                    }
+                  >
+                    <Image src="/pin_light.svg" alt="" width={ICON_SIZE} height={ICON_SIZE} aria-hidden="true" />
+                  </button>
+                  <button
+                    className="slotIconButton"
+                    type="button"
+                    onClick={() => toggleSuspendedFullscreen(windowItem.id)}
+                    aria-label="Expandir tela suspensa"
+                    title="Expandir tela suspensa"
+                  >
+                    <Image
+                      src="/Full_Screen_Corner_Light.svg"
+                      alt=""
+                      width={ICON_SIZE}
+                      height={ICON_SIZE}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    className="slotIconButton"
+                    type="button"
+                    onClick={() => openChatAtSlot(windowItem.slot)}
+                    aria-label="Abrir chat"
+                    title="Abrir chat"
+                  >
+                    <Image src="/chat_light.svg" alt="" width={ICON_SIZE} height={ICON_SIZE} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="restoreSuspendedButton suspendedReturnButton"
+                    onClick={() => restoreSuspendedVideo(windowItem.slot)}
+                    aria-label="Voltar ao slot"
+                    title="Voltar ao slot"
+                  >
+                    <Image src="/External.svg" alt="" width={ICON_SIZE} height={ICON_SIZE} aria-hidden="true" />
+                  </button>
+                </div>
               </header>
+              {suspendedVolumePanelId === windowItem.id ? (
+                <div className="slotVolumePanel suspendedVolumePanel">
+                  <button type="button" onClick={() => toggleSlotMute(windowItem.slot)}>
+                    {slotMuted[windowItem.slot] ?? true ? "Ativar audio" : "Mutar audio"}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={slotVolume[windowItem.slot] ?? 100}
+                    onChange={(event) => setSlotVolumeLevel(windowItem.slot, Number(event.target.value))}
+                  />
+                  <span>Volume: {slotVolume[windowItem.slot] ?? 100}%</span>
+                </div>
+              ) : null}
               <iframe
-                src={`https://www.youtube.com/embed/${windowItem.videoId}?autoplay=0&mute=1&rel=0`}
+                src={`https://www.youtube.com/embed/${windowItem.videoId}?autoplay=1&mute=1&playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(
+                  embedOrigin
+                )}`}
                 title={`Tela suspensa ${windowItem.videoId}`}
                 className="chatFloatFrame suspendedFloatFrame"
                 referrerPolicy="strict-origin-when-cross-origin"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
+                ref={(element) => {
+                  suspendedIframeRefs.current[windowItem.id] = element;
+                }}
+                onLoad={() => onSuspendedPlayerReady(windowItem)}
               />
             </div>
           ))}
@@ -1746,12 +2927,28 @@ export function WatchStation({ email }: WatchStationProps) {
       </section>
 
       <footer className="watchFooter">
-        <span className="footerLogoWrap" aria-hidden="true">
-          <Image src={logoSrc} alt="" className="footerLogo" fill sizes="58px" />
-        </span>
-        <small className="footerText">LiveStation</small>
-        <small className="footerMeta">{APP_VERSION}</small>
-        <small className="footerMeta">(c) 2026 Rizzer</small>
+        <div className="footerLeft">
+          <span className="footerLogoWrap" aria-hidden="true">
+            <Image src={logoSrc} alt="" className="footerLogo" fill sizes="72px" />
+          </span>
+        </div>
+        <div className="footerCenter">
+          <small className="footerText">LiveStation | Rizzer - Rizzer™ 2026 {APP_VERSION}</small>
+        </div>
+        <div className="footerRight">
+          <a href="https://www.instagram.com/rizzerstudio" target="_blank" rel="noreferrer">
+            Instagram
+          </a>
+          <a href="https://github.com/Rizzer-Studio" target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          <a href="https://www.linkedin.com/company/rizzer-studio/" target="_blank" rel="noreferrer">
+            LinkedIn
+          </a>
+          <a href="https://www.rizzer.com.br/" target="_blank" rel="noreferrer">
+            Site
+          </a>
+        </div>
       </footer>
 
       {profileOpen ? (
@@ -1760,6 +2957,7 @@ export function WatchStation({ email }: WatchStationProps) {
           onClick={() => {
             setProfileError(null);
             setProfileOpen(false);
+            setPasswordPopupOpen(false);
           }}
         >
           <div
@@ -1841,12 +3039,415 @@ export function WatchStation({ email }: WatchStationProps) {
                 className="profileFileInput"
               />
               {profileError ? <p className="statusError">{profileError}</p> : null}
+              <button
+                type="button"
+                className="profileHelpButton"
+                onClick={() => {
+                  setPasswordStatus(null);
+                  setPasswordPopupOpen(true);
+                }}
+              >
+                Alterar senha
+              </button>
+              <button
+                type="button"
+                className="profileHelpButton"
+                onClick={() => {
+                  setProfileOpen(false);
+                  setUpdatesOpen(true);
+                  void loadUpdates();
+                }}
+              >
+                Atualizacoes
+              </button>
+              <button
+                type="button"
+                className="profileHelpButton"
+                onClick={() => {
+                  setProfileOpen(false);
+                  setBugPopupOpen(true);
+                  setEditingBugId(null);
+                  setReplyingBugId(null);
+                  setBugError(null);
+                  void loadBugReports();
+                }}
+              >
+                Relatar bug
+              </button>
               <button type="button" className="profileHelpButton" onClick={() => setHelpOpen(true)}>
                 Ajuda
               </button>
               <button type="button" className="logoutButton profileLogoutButton" onClick={logout}>
                 Sair
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {passwordPopupOpen ? (
+        <div
+          className="profilePopoverLayer layoutConfirmLayer"
+          onClick={() => {
+            setPasswordPopupOpen(false);
+            setPasswordStatus(null);
+          }}
+        >
+          <div className="layoutConfirmModal passwordModal" onClick={(event) => event.stopPropagation()}>
+            <header className="layoutConfirmHeader">
+              <h3>Alterar senha</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordPopupOpen(false);
+                  setPasswordStatus(null);
+                }}
+              >
+                Fechar
+              </button>
+            </header>
+            <div className="layoutConfirmBody">
+              <form className="profilePasswordForm" onSubmit={onChangePasswordSubmit}>
+                <label>
+                  Senha atual
+                  <input
+                    type="password"
+                    value={passwordCurrent}
+                    onChange={(event) => setPasswordCurrent(event.target.value)}
+                    placeholder="Digite a senha atual"
+                    autoComplete="current-password"
+                  />
+                </label>
+                <label>
+                  Nova senha
+                  <input
+                    type="password"
+                    value={passwordNext}
+                    onChange={(event) => setPasswordNext(event.target.value)}
+                    placeholder="8+ caracteres com letras e numeros"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label>
+                  Confirmar nova senha
+                  <input
+                    type="password"
+                    value={passwordConfirm}
+                    onChange={(event) => setPasswordConfirm(event.target.value)}
+                    placeholder="Repita a nova senha"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button type="submit" disabled={passwordLoading}>
+                  {passwordLoading ? "Salvando..." : "Alterar senha"}
+                </button>
+                {passwordStatus ? (
+                  <p className={passwordStatus.includes("sucesso") ? "statusOk" : "statusError"}>{passwordStatus}</p>
+                ) : null}
+              </form>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {updatesOpen ? (
+        <div className="profilePopoverLayer layoutConfirmLayer" onClick={() => setUpdatesOpen(false)}>
+          <div className="helpGuideModal updatesModal" onClick={(event) => event.stopPropagation()}>
+            <header className="helpGuideHeader">
+              <h3>Atualizacoes do LiveStation</h3>
+              <button type="button" onClick={() => setUpdatesOpen(false)}>
+                Fechar
+              </button>
+            </header>
+            <div className="helpGuideBody bugModalBody">
+              {updatesLoading ? <p className="statusHint">Carregando atualizacoes...</p> : null}
+              {updatesError ? <p className="statusError">{updatesError}</p> : null}
+              {!updatesLoading && !updatesError && updatesList.length === 0 ? (
+                <p className="statusHint">Sem atualizacoes registradas.</p>
+              ) : null}
+              {updatesList.map((entry) => (
+                <section key={entry.version} className="updateSection">
+                  <h4>{entry.version}</h4>
+                  <p className="updateDate">{entry.date}</p>
+                  <div className="updateColumns">
+                    <div>
+                      <strong>Melhorias</strong>
+                      <ul>
+                        {entry.improvements.map((item) => (
+                          <li key={`${entry.version}-improvement-${item}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>Correções</strong>
+                      <ul>
+                        {entry.fixes.map((item) => (
+                          <li key={`${entry.version}-fix-${item}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bugPopupOpen ? (
+        <div className="profilePopoverLayer layoutConfirmLayer" onClick={() => setBugPopupOpen(false)}>
+          <div className="helpGuideModal bugModal" onClick={(event) => event.stopPropagation()}>
+            <header className="helpGuideHeader">
+              <h3>Relatar bug</h3>
+              <button type="button" onClick={() => setBugPopupOpen(false)}>
+                Fechar
+              </button>
+            </header>
+            <div className="helpGuideBody">
+              <section className="bugComposer">
+                <h4>Novo relato</h4>
+                <form onSubmit={submitBugReport} className="bugForm">
+                  <label>
+                    Tipo de bug
+                    <select value={bugType} onChange={(event) => setBugType(event.target.value as BugType)}>
+                      {BUG_TYPES.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Descricao
+                    <textarea
+                      value={bugText}
+                      onChange={(event) => setBugText(event.target.value)}
+                      placeholder="Explique o que aconteceu, onde ocorreu e como reproduzir."
+                      maxLength={2000}
+                    />
+                  </label>
+                  <div className="bugImageRow">
+                    <label className="bugImageInput">
+                      <input type="file" accept="image/*" onChange={onBugImageChange} />
+                      {bugImageLoading ? "Processando imagem..." : "Adicionar imagem"}
+                    </label>
+                    {bugImageDataUrl ? (
+                      <button type="button" onClick={() => setBugImageDataUrl(null)}>
+                        Remover imagem
+                      </button>
+                    ) : null}
+                  </div>
+                  {bugImageDataUrl ? (
+                    <div className="bugPreviewFrame">
+                      <Image
+                        src={bugImageDataUrl}
+                        alt="Preview do bug"
+                        fill
+                        sizes="(max-width: 960px) 90vw, 360px"
+                        className="bugPreviewImage"
+                        unoptimized
+                      />
+                    </div>
+                  ) : null}
+                  <button type="submit" disabled={bugSubmitting}>
+                    {bugSubmitting ? "Publicando..." : "Publicar relato"}
+                  </button>
+                </form>
+                {bugError ? <p className="statusError">{bugError}</p> : null}
+              </section>
+
+              <section className="bugListSection">
+                <h4>Relatos publicados</h4>
+                {bugLoading ? <p className="statusHint">Carregando relatos...</p> : null}
+                {!bugLoading && bugReports.length === 0 ? <p className="statusHint">Nenhum bug publicado ainda.</p> : null}
+                <div className="bugList">
+                  {bugReports.map((report) => {
+                    const isOwner = report.userEmail.toLowerCase() === email.toLowerCase();
+                    const isEditing = editingBugId === report.id;
+                    const isReplying = replyingBugId === report.id;
+                    return (
+                      <article key={report.id} className="bugItem">
+                        <header className="bugItemHeader">
+                          <div>
+                            <strong>{report.userName}</strong>
+                            <span>{formatBugTypeLabel(report.bugType)}</span>
+                          </div>
+                          <div className="bugItemHeaderRight">
+                            <time>{formatMessageDateTime(report.createdAt)}</time>
+                            {!isEditing ? (
+                              <div className="bugHeaderActions">
+                                {(isOwner || bugIsAdmin) ? (
+                                  <button
+                                    type="button"
+                                    className="bugIconAction"
+                                    data-label="Editar"
+                                    onClick={() => startEditBug(report)}
+                                  >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                      <path
+                                        fill="currentColor"
+                                        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm2.92 2.33H5v-.92l8.06-8.06.92.92L5.92 19.58ZM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.3a1 1 0 0 0-1.41 0L15.13 5.13l3.75 3.75 1.83-1.84Z"
+                                      />
+                                    </svg>
+                                  </button>
+                                ) : null}
+                                {(isOwner || bugIsAdmin) ? (
+                                  <button
+                                    type="button"
+                                    className="bugIconAction danger"
+                                    data-label="Excluir"
+                                    onClick={() => void deleteBug(report.id)}
+                                    disabled={bugSubmitting}
+                                  >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                      <path
+                                        fill="currentColor"
+                                        d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-1 6h2v9H8V9Zm6 0h2v9h-2V9Zm-3 0h2v9h-2V9Z"
+                                      />
+                                    </svg>
+                                  </button>
+                                ) : null}
+                                {bugIsAdmin && !isReplying ? (
+                                  <button
+                                    type="button"
+                                    className="bugIconAction"
+                                    data-label={report.adminReply ? "Editar resposta" : "Responder"}
+                                    onClick={() => {
+                                      setReplyingBugId(report.id);
+                                      setReplyText(report.adminReply ?? "");
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                      <path
+                                        fill="currentColor"
+                                        d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-4 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 2v9h2v1.17L7.17 15H20V6H4Z"
+                                      />
+                                    </svg>
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </header>
+
+                        {isEditing ? (
+                          <div className="bugEditBox">
+                            <label>
+                              Tipo
+                              <select
+                                value={editingBugType}
+                                onChange={(event) => setEditingBugType(event.target.value as BugType)}
+                              >
+                                {BUG_TYPES.map((item) => (
+                                  <option key={`${report.id}-${item.value}`} value={item.value}>
+                                    {item.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Texto
+                              <textarea
+                                value={editingBugText}
+                                onChange={(event) => setEditingBugText(event.target.value)}
+                                maxLength={2000}
+                              />
+                            </label>
+                            <div className="bugImageRow">
+                              <label className="bugImageInput">
+                                <input type="file" accept="image/*" onChange={onEditBugImageChange} />
+                                Alterar imagem
+                              </label>
+                              {editingBugImageDataUrl ? (
+                                <button type="button" onClick={() => setEditingBugImageDataUrl(null)}>
+                                  Remover imagem
+                                </button>
+                              ) : null}
+                            </div>
+                            {editingBugImageDataUrl ? (
+                              <div className="bugPreviewFrame">
+                                <Image
+                                  src={editingBugImageDataUrl}
+                                  alt="Preview da edicao"
+                                  fill
+                                  sizes="(max-width: 960px) 90vw, 360px"
+                                  className="bugPreviewImage"
+                                  unoptimized
+                                />
+                              </div>
+                            ) : null}
+                            <div className="bugActions">
+                              <button type="button" onClick={() => saveEditBug(report.id)} disabled={bugSubmitting}>
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBugId(null);
+                                  setEditingBugText("");
+                                  setEditingBugImageDataUrl(null);
+                                }}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p>{report.text}</p>
+                            {report.imageDataUrl ? (
+                              <div className="bugPreviewFrame">
+                                <Image
+                                  src={report.imageDataUrl}
+                                  alt="Imagem do bug"
+                                  fill
+                                  sizes="(max-width: 960px) 90vw, 360px"
+                                  className="bugPreviewImage"
+                                  unoptimized
+                                />
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+
+                        {report.adminReply ? (
+                          <div className="bugAdminReply">
+                            <strong>Resposta do admin</strong>
+                            <p>{report.adminReply}</p>
+                          </div>
+                        ) : null}
+
+                        {isReplying ? (
+                          <div className="bugReplyBox">
+                            <textarea
+                              value={replyText}
+                              onChange={(event) => setReplyText(event.target.value)}
+                              placeholder="Digite a resposta do admin..."
+                              maxLength={1500}
+                            />
+                            <div className="bugActions">
+                              <button type="button" onClick={() => saveAdminReply(report.id)} disabled={bugSubmitting}>
+                                Responder
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReplyingBugId(null);
+                                  setReplyText("");
+                                }}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -2011,6 +3612,14 @@ export function WatchStation({ email }: WatchStationProps) {
                   <span>Perfis com foto</span>
                   <strong>{siteStats.profilesWithAvatar}</strong>
                 </p>
+                <p>
+                  <span>Tempo total assistido</span>
+                  <strong>{formatWatchDuration(siteStats.totalWatchSeconds)}</strong>
+                </p>
+                <p>
+                  <span>Top espectador</span>
+                  <strong>{siteStats.topWatcherName}</strong>
+                </p>
               </div>
             </div>
           </div>
@@ -2102,3 +3711,4 @@ function LayoutPreview({ columns, maxSlots }: { columns: number; maxSlots: numbe
     </div>
   );
 }
+

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { AdSenseUnit } from "@/components/adsense-unit";
 
 type Mode = "login" | "register";
@@ -16,6 +17,7 @@ export function AuthForm() {
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -136,7 +138,7 @@ export function AuthForm() {
         const loginResponse = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email, password, rememberMe })
         });
         const loginData = (await loginResponse.json()) as AuthApiError;
         if (!loginResponse.ok) {
@@ -221,6 +223,21 @@ export function AuthForm() {
               placeholder="8+ caracteres com letras e numeros"
             />
           </label>
+          {mode === "login" ? (
+            <>
+              <label className="authCheckboxLabel">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                />
+                Lembrar de mim neste dispositivo
+              </label>
+              <p className="authInlineLinkRow">
+                <Link href="/forgot-password">Esqueceu a senha?</Link>
+              </p>
+            </>
+          ) : null}
           <button type="submit" disabled={loading}>
             {loading ? "Processando..." : mode === "login" ? "Entrar" : "Criar conta"}
           </button>

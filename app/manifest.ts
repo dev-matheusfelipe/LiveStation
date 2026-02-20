@@ -11,6 +11,11 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0f1115",
     icons: [
       {
+        src: "/Logo_Favicon_512x512_Rizzer.ico",
+        sizes: "any",
+        type: "image/x-icon"
+      },
+      {
         src: "/icon.png",
         sizes: "512x512",
         type: "image/png"

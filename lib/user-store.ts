@@ -248,6 +248,25 @@ async function updateUserProfilePostgres(
   return updated;
 }
 
+async function updateUserPasswordPostgres(email: string, passwordHash: string): Promise<StoredUser> {
+  await ensurePostgresSchema();
+  const pool = getPgPool();
+  const result = await pool.query(
+    `
+    UPDATE users
+    SET password_hash = $1
+    WHERE lower(email) = lower($2)
+    RETURNING *
+    `,
+    [passwordHash, email.trim().toLowerCase()]
+  );
+  const row = result.rows[0] as UserRow | undefined;
+  if (!row) {
+    throw new Error("USER_NOT_FOUND");
+  }
+  return normalizeRow(row);
+}
+
 async function updateUserPresencePostgres(email: string, activeVideos?: number): Promise<StoredUser> {
   const current = await findUserByEmailPostgres(email);
   if (!current) {
@@ -379,6 +398,28 @@ function updateUserProfileSqlite(
   return updated;
 }
 
+function updateUserPasswordSqlite(email: string, passwordHash: string): StoredUser {
+  const db = getDb();
+  const current = findUserByEmailSqlite(email);
+  if (!current) {
+    throw new Error("USER_NOT_FOUND");
+  }
+
+  db.prepare(
+    `
+    UPDATE users
+    SET password_hash = ?
+    WHERE lower(email) = lower(?)
+    `
+  ).run(passwordHash, email);
+
+  const updated = findUserByEmailSqlite(email);
+  if (!updated) {
+    throw new Error("USER_NOT_FOUND");
+  }
+  return updated;
+}
+
 function updateUserPresenceSqlite(email: string, activeVideos?: number): StoredUser {
   const current = findUserByEmailSqlite(email);
   if (!current) {
@@ -450,6 +491,14 @@ export async function updateUserProfile(
     return updateUserProfilePostgres(email, profile);
   }
   return updateUserProfileSqlite(email, profile);
+}
+
+export async function updateUserPassword(email: string, passwordHash: string): Promise<StoredUser> {
+  await ensureDefaultRizzerAccount();
+  if (isPostgresEnabled()) {
+    return updateUserPasswordPostgres(email, passwordHash);
+  }
+  return updateUserPasswordSqlite(email, passwordHash);
 }
 
 export async function updateUserPresence(email: string, activeVideos?: number): Promise<StoredUser> {

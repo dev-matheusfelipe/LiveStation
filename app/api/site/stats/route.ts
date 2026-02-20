@@ -18,7 +18,17 @@ export async function GET() {
 
   let onlineUsers = 0;
   let totalActiveVideos = 0;
+  let totalWatchSeconds = 0;
+  let topWatcherName = "-";
+  let topWatcherSeconds = 0;
   for (const user of users) {
+    const currentWatchSeconds = Math.max(0, Math.floor(user.watchSeconds ?? 0));
+    totalWatchSeconds += currentWatchSeconds;
+    if (currentWatchSeconds > topWatcherSeconds) {
+      topWatcherSeconds = currentWatchSeconds;
+      topWatcherName = user.username || user.displayName || user.email.split("@")[0] || user.email;
+    }
+
     const lastSeen = user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0;
     const online = now - lastSeen <= ONLINE_WINDOW_MS;
     if (online) {
@@ -32,6 +42,9 @@ export async function GET() {
     onlineUsers,
     offlineUsers: Math.max(0, users.length - onlineUsers),
     totalActiveVideos,
-    profilesWithAvatar: users.filter((user) => Boolean(user.avatarDataUrl)).length
+    profilesWithAvatar: users.filter((user) => Boolean(user.avatarDataUrl)).length,
+    totalWatchSeconds,
+    topWatcherName,
+    topWatcherSeconds
   });
 }

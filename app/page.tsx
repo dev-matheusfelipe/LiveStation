@@ -9,8 +9,32 @@ export const metadata: Metadata = {
   title: "LiveStation Rizzer | Multitelas para Lives ao Vivo",
   description:
     "Nova forma de acompanhar diversas lives em um so lugar. Multiplas telas, sincronizacao e experiencia premium no LiveStation Rizzer.",
+  keywords: [
+    "LiveStation",
+    "Rizzer",
+    "LiveStation Rizzer",
+    "multitelas",
+    "assistir varias lives",
+    "plataforma de lives",
+    "multiplas transmissoes"
+  ],
   alternates: {
     canonical: "/"
+  },
+  openGraph: {
+    title: "LiveStation Rizzer | Multitelas para Lives ao Vivo",
+    description:
+      "Acompanhe varias lives ao mesmo tempo em uma unica estacao. Experiencia premium do Rizzer LiveStation.",
+    url: "/",
+    siteName: "Rizzer LiveStation",
+    type: "website",
+    images: ["/icon.png"]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LiveStation Rizzer",
+    description: "A nova forma de acompanhar varias lives em um so lugar.",
+    images: ["/icon.png"]
   }
 };
 

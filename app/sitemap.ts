@@ -3,20 +3,14 @@ import { getSiteUrl } from "@/lib/site";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const siteUrl = getSiteUrl();
-  const now = new Date();
+  const lastModified = new Date("2026-02-20T00:00:00.000Z");
 
   return [
     {
       url: `${siteUrl}/`,
-      lastModified: now,
-      changeFrequency: "weekly",
+      lastModified,
+      changeFrequency: "daily",
       priority: 1
-    },
-    {
-      url: `${siteUrl}/login`,
-      lastModified: now,
-      changeFrequency: "weekly",
-      priority: 0.8
     }
   ];
 }

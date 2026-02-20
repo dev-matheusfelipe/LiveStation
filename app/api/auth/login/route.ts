@@ -11,6 +11,7 @@ import { findUserByEmail } from "@/lib/user-store";
 type LoginBody = {
   email?: string;
   password?: string;
+  rememberMe?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as LoginBody;
     const email = body.email?.trim().toLowerCase() ?? "";
     const password = body.password ?? "";
+    const rememberMe = body.rememberMe !== false;
 
     if (!email || !password) {
       return NextResponse.json({ error: "Informe e-mail e senha.", code: "AUTH_LOGIN_MISSING_FIELDS" }, { status: 400 });
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
       sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: SESSION_TTL_SECONDS
+      maxAge: rememberMe ? SESSION_TTL_SECONDS : undefined
     });
     return response;
   } catch (error) {

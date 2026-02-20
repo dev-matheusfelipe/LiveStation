@@ -6,6 +6,7 @@ const scrypt = promisify(scryptCallback);
 export const SESSION_COOKIE = "livestation_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 export const EMAIL_VERIFICATION_TTL_SECONDS = 60 * 30;
+export const RESET_PASSWORD_TTL_SECONDS = 60 * 30;
 
 type SessionPayload = {
   email: string;
@@ -17,6 +18,12 @@ type EmailVerificationPayload = {
   email: string;
   username: string;
   passwordHash: string;
+  exp: number;
+};
+
+type ResetPasswordPayload = {
+  typ: "reset_password";
+  email: string;
   exp: number;
 };
 
@@ -80,6 +87,17 @@ export function createEmailVerificationToken(email: string, username: string, pa
     username: username.trim().toLowerCase(),
     passwordHash,
     exp: Math.floor(Date.now() / 1000) + EMAIL_VERIFICATION_TTL_SECONDS
+  };
+  const encoded = base64UrlEncode(JSON.stringify(payload));
+  const signature = sign(encoded);
+  return `${encoded}.${signature}`;
+}
+
+export function createResetPasswordToken(email: string): string {
+  const payload: ResetPasswordPayload = {
+    typ: "reset_password",
+    email: email.trim().toLowerCase(),
+    exp: Math.floor(Date.now() / 1000) + RESET_PASSWORD_TTL_SECONDS
   };
   const encoded = base64UrlEncode(JSON.stringify(payload));
   const signature = sign(encoded);
@@ -188,6 +206,40 @@ export function verifyEmailVerificationToken(token?: string): EmailVerificationP
       !payload.passwordHash ||
       !payload.exp
     ) {
+      return null;
+    }
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyResetPasswordToken(token?: string): ResetPasswordPayload | null {
+  if (!token) {
+    return null;
+  }
+
+  const [encoded, signature] = token.split(".");
+  if (!encoded || !signature) {
+    return null;
+  }
+
+  const expected = sign(encoded);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return null;
+  }
+  if (!timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encoded)) as ResetPasswordPayload;
+    if (payload.typ !== "reset_password" || !payload.email || !payload.exp) {
       return null;
     }
     if (payload.exp < Math.floor(Date.now() / 1000)) {

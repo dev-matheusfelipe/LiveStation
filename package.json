@@ -1,9 +1,11 @@
 {
   "name": "rizzer-livestation",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "scripts": {
+    "clean": "npx rimraf .next",
     "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
