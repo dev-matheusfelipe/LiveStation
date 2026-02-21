@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
 import { getDb } from "@/lib/db";
+import { ensurePostgresSchema, getPgPool, isPostgresEnabled } from "@/lib/postgres";
 
 export type ChatMessage = {
   id: string;
@@ -45,7 +46,31 @@ function pruneMessages(db: ReturnType<typeof getDb>): void {
   ).run(MAX_MESSAGES);
 }
 
+async function pruneMessagesPostgres(): Promise<void> {
+  await ensurePostgresSchema();
+  const pool = getPgPool();
+  await pool.query(
+    `
+    DELETE FROM messages
+    WHERE id NOT IN (
+      SELECT id FROM messages ORDER BY created_at DESC LIMIT $1
+    )
+    `,
+    [MAX_MESSAGES]
+  );
+}
+
 export async function readMessages(): Promise<ChatMessage[]> {
+  if (isPostgresEnabled()) {
+    await ensurePostgresSchema();
+    const pool = getPgPool();
+    const result = await pool.query<MessageRow>(
+      "SELECT * FROM messages ORDER BY created_at ASC LIMIT $1",
+      [MAX_MESSAGES]
+    );
+    return result.rows.map(normalizeMessageRow);
+  }
+
   const db = getDb();
   const rows = db
     .prepare("SELECT * FROM messages ORDER BY created_at ASC LIMIT ?")
@@ -56,12 +81,28 @@ export async function readMessages(): Promise<ChatMessage[]> {
 export async function appendMessage(
   message: Omit<ChatMessage, "id" | "createdAt">
 ): Promise<ChatMessage> {
-  const db = getDb();
   const next: ChatMessage = {
     ...message,
     id: randomUUID(),
     createdAt: new Date().toISOString()
   };
+
+  if (isPostgresEnabled()) {
+    await ensurePostgresSchema();
+    const pool = getPgPool();
+    await pool.query(
+      `
+      INSERT INTO messages (id, user_email, user_name, avatar_data_url, text, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [next.id, next.userEmail.toLowerCase(), next.userName, next.avatarDataUrl ?? null, next.text, next.createdAt]
+    );
+    await pruneMessagesPostgres();
+    chatEvents.emit("message", next);
+    return next;
+  }
+
+  const db = getDb();
   db.prepare(
     `
     INSERT INTO messages (id, user_email, user_name, avatar_data_url, text, created_at)

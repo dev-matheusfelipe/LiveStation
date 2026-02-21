@@ -81,6 +81,21 @@ export async function ensurePostgresSchema(): Promise<void> {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_bug_reports_user_email ON bug_reports(user_email);
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        user_email TEXT NOT NULL,
+        user_name TEXT NOT NULL,
+        avatar_data_url TEXT,
+        text TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+    `);
   })();
 
   await schemaReady;
