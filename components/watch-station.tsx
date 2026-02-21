@@ -290,6 +290,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const [siteMessages, setSiteMessages] = useState<SiteMessage[]>([]);
   const [siteMessageText, setSiteMessageText] = useState("");
   const [siteChatSending, setSiteChatSending] = useState(false);
+  const [siteChatUnread, setSiteChatUnread] = useState(0);
   const [layoutsMenuOpen, setLayoutsMenuOpen] = useState(false);
   const [pendingLayout, setPendingLayout] = useState<LayoutPreset | null>(null);
   const [slotsToClose, setSlotsToClose] = useState<number[]>([]);
@@ -759,6 +760,65 @@ export function WatchStation({ email }: WatchStationProps) {
       }
     };
   }, [siteChatOpen]);
+
+  useEffect(() => {
+    if (siteChatOpen) {
+      setSiteChatUnread(0);
+      return;
+    }
+
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const pullMessages = async () => {
+      try {
+        const response = await fetch("/api/site/chat");
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as { messages: SiteMessage[] };
+        if (!active) {
+          return;
+        }
+        setSiteMessages((prev) => {
+          const prevIds = new Set(prev.map((item) => item.id));
+          const unreadDelta = data.messages.reduce((count, item) => {
+            const isMine = item.userEmail.toLowerCase() === email.toLowerCase();
+            if (!isMine && !prevIds.has(item.id)) {
+              return count + 1;
+            }
+            return count;
+          }, 0);
+          if (unreadDelta > 0) {
+            setSiteChatUnread((current) => current + unreadDelta);
+          }
+          return data.messages.slice(-200);
+        });
+      } catch {
+        // ignore polling failures
+      }
+    };
+
+    void pullMessages();
+    timer = setInterval(pullMessages, 6_000);
+
+    return () => {
+      active = false;
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [siteChatOpen, email]);
+
+  function toggleSiteChat() {
+    setSiteChatOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setSiteChatUnread(0);
+      }
+      return next;
+    });
+  }
 
   const sendPlayerCommand = useCallback(
     (slotIndex: number, func: string, args: Array<string | number | boolean> = []) => {
@@ -2286,8 +2346,13 @@ export function WatchStation({ email }: WatchStationProps) {
               <button type="button" className="mobileStatsButton" onClick={() => setMobileStatsOpen(true)}>
                 Estatisticas
               </button>
-              <button type="button" className="openSiteChatButton" onClick={() => setSiteChatOpen((prev) => !prev)}>
-                {siteChatOpen ? "Fechar chat" : "Chat LiveStation"}
+              <button type="button" className="openSiteChatButton" onClick={toggleSiteChat}>
+                <span>{siteChatOpen ? "Fechar chat" : "Chat LiveStation"}</span>
+                {!siteChatOpen && siteChatUnread > 0 ? (
+                  <span className="chatUnreadBadge" aria-label={`${siteChatUnread} novas mensagens`}>
+                    {siteChatUnread > 99 ? "99+" : siteChatUnread}
+                  </span>
+                ) : null}
               </button>
             </div>
           ) : (
@@ -2324,8 +2389,13 @@ export function WatchStation({ email }: WatchStationProps) {
                   <strong>{siteStats.topWatcherName}</strong>
                 </p>
               </div>
-              <button type="button" className="openSiteChatButton" onClick={() => setSiteChatOpen((prev) => !prev)}>
-                {siteChatOpen ? "Fechar o chat" : "Chat LiveStation"}
+              <button type="button" className="openSiteChatButton" onClick={toggleSiteChat}>
+                <span>{siteChatOpen ? "Fechar o chat" : "Chat LiveStation"}</span>
+                {!siteChatOpen && siteChatUnread > 0 ? (
+                  <span className="chatUnreadBadge" aria-label={`${siteChatUnread} novas mensagens`}>
+                    {siteChatUnread > 99 ? "99+" : siteChatUnread}
+                  </span>
+                ) : null}
               </button>
             </div>
           )}
@@ -2742,10 +2812,13 @@ export function WatchStation({ email }: WatchStationProps) {
                   </button>
                 </header>
                 <iframe
-                  src={`https://www.youtube.com/live_chat?v=${slots[chat.slot]}&embed_domain=${embedDomain}`}
+                  src={`https://www.youtube.com/live_chat?v=${slots[chat.slot]}&embed_domain=${embedDomain}&origin=${encodeURIComponent(
+                    embedOrigin
+                  )}&hl=pt-BR`}
                   title={`Chat da posicao ${chat.slot + 1}`}
                   className="chatFloatFrame"
                   referrerPolicy="strict-origin-when-cross-origin"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                 />
               </div>
             ))

@@ -1301,13 +1301,30 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   text-align: center;
   line-height: 1;
-  padding: 0;
+  padding: 0 10px;
   border: 1px solid rgba(47, 232, 128, 0.72);
   border-radius: 8px;
   color: #5fffb0;
   background: rgba(25, 86, 54, 0.3);
+}
+
+.chatUnreadBadge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #ff5f45 0%, #ff2f73 100%);
+  border: 1px solid rgba(255, 164, 164, 0.85);
+  box-shadow: 0 0 0 3px rgba(255, 64, 108, 0.2);
 }
 
 .mobileTopActions {
