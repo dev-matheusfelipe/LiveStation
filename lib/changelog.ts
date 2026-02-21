@@ -29,7 +29,7 @@ export const LIVESTATION_CHANGELOG: ChangelogEntry[] = [
     ]
   },  {
     version: "v0.4.4",
-    date: "2026-02-20",
+    date: "2026-02-19",
     improvements: [
       "Busca integrada no topo com visualizacao dos resultados dentro da tela principal.",
       "Janela suspensa com controles expandidos, pin por modos e retorno rapido para o slot.",
