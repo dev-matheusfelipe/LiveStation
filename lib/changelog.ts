@@ -20,7 +20,10 @@ export const LIVESTATION_CHANGELOG: ChangelogEntry[] = [
       "Ajustes no cookie de sessao para suporte a 'Lembrar de mim'.",
       "Correcao do build na pagina de reset de senha sem dependencia client-side de search params.",
       "Refino de layout/spacing dos popups para melhorar legibilidade e consistencia visual.",
-      "Estabilizacao de API e persistencia para relatos de bug com suporte a resposta de admin."
+      "Estabilizacao de API e persistencia para relatos de bug com suporte a resposta de admin.",
+      "Ajuste do chat embed do YouTube para manter a navegacao dentro do LiveStation durante autenticacao.",
+      "Novo indicador visual de mensagens nao lidas no botao Chat LiveStation.",
+      "Correcao do contador de nao lidas para limpar ao abrir o chat sem retornar em loop."
     ]
   },  {
     version: "v0.4.4",

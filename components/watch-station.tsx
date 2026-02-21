@@ -310,6 +310,7 @@ export function WatchStation({ email }: WatchStationProps) {
   const autoLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mobileNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeVideosRef = useRef(0);
+  const unreadMessageIdsRef = useRef<Set<string>>(new Set());
   const watchStateHydratedRef = useRef(false);
   const layoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
   const dragStateRef = useRef<{
@@ -764,6 +765,7 @@ export function WatchStation({ email }: WatchStationProps) {
   useEffect(() => {
     if (siteChatOpen) {
       setSiteChatUnread(0);
+      unreadMessageIdsRef.current.clear();
       return;
     }
 
@@ -780,11 +782,12 @@ export function WatchStation({ email }: WatchStationProps) {
         if (!active) {
           return;
         }
-        setSiteMessages((prev) => {
-          const prevIds = new Set(prev.map((item) => item.id));
+        setSiteMessages(() => {
           const unreadDelta = data.messages.reduce((count, item) => {
             const isMine = item.userEmail.toLowerCase() === email.toLowerCase();
-            if (!isMine && !prevIds.has(item.id)) {
+            const alreadyNotified = unreadMessageIdsRef.current.has(item.id);
+            if (!isMine && !alreadyNotified) {
+              unreadMessageIdsRef.current.add(item.id);
               return count + 1;
             }
             return count;
@@ -815,6 +818,7 @@ export function WatchStation({ email }: WatchStationProps) {
       const next = !prev;
       if (next) {
         setSiteChatUnread(0);
+        unreadMessageIdsRef.current.clear();
       }
       return next;
     });
@@ -3232,7 +3236,7 @@ export function WatchStation({ email }: WatchStationProps) {
                 Fechar
               </button>
             </header>
-            <div className="helpGuideBody bugModalBody">
+            <div className="helpGuideBody updatesBody">
               {updatesLoading ? <p className="statusHint">Carregando atualizacoes...</p> : null}
               {updatesError ? <p className="statusError">{updatesError}</p> : null}
               {!updatesLoading && !updatesError && updatesList.length === 0 ? (
