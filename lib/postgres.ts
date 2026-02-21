@@ -1,6 +1,31 @@
 import { Pool } from "pg";
 
-const databaseUrl = process.env.DATABASE_URL?.trim();
+function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+
+  // Accept pasted Neon snippets like: psql 'postgresql://...'
+  if (trimmed.toLowerCase().startsWith("psql ")) {
+    const match = trimmed.match(/['"](postgres(?:ql)?:\/\/[^'"]+)['"]/i);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  if (/^postgres(?:ql)?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return undefined;
+}
+
+const databaseUrl =
+  normalizeDatabaseUrl(process.env.DATABASE_URL) ??
+  normalizeDatabaseUrl(process.env.POSTGRES_URL) ??
+  normalizeDatabaseUrl(process.env.POSTGRES_PRISMA_URL) ??
+  normalizeDatabaseUrl(process.env.NEON_DATABASE_URL);
 const useSsl = process.env.NODE_ENV === "production";
 
 let cachedPool: Pool | null = null;

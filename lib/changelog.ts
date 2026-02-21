@@ -24,7 +24,8 @@ export const LIVESTATION_CHANGELOG: ChangelogEntry[] = [
       "Ajuste do chat embed do YouTube para manter a navegacao dentro do LiveStation durante autenticacao.",
       "Novo indicador visual de mensagens nao lidas no botao Chat LiveStation.",
       "Correcao do contador de nao lidas para limpar ao abrir o chat sem retornar em loop.",
-      "Persistencia do chat em Postgres (quando DATABASE_URL estiver configurado) para manter historico apos F5 em producao."
+      "Persistencia do chat em Postgres (quando DATABASE_URL estiver configurado) para manter historico apos F5 em producao.",
+      "Suporte automatico a POSTGRES_URL/POSTGRES_PRISMA_URL/NEON_DATABASE_URL para persistir tempo assistido e estatisticas mesmo sem DATABASE_URL explicita."
     ]
   },  {
     version: "v0.4.4",
